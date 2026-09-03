@@ -8,6 +8,7 @@ node_modules/
 
 # Backend build output
 backend/dist/
+*.tsbuildinfo
 
 # Frontend build output
 frontend/.next/
