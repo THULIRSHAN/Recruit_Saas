@@ -1,0 +1,12 @@
+{
+  "name": "@ats/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Next.js frontend — placeholder, scaffolded properly in M1.3",
+  "scripts": {
+    "lint": "echo \"frontend lint not configured yet (M1.3)\" && exit 0",
+    "typecheck": "echo \"frontend typecheck not configured yet (M1.3)\" && exit 0",
+    "test": "echo \"frontend tests not configured yet (M1.3)\" && exit 0",
+    "build": "echo \"frontend build not configured yet (M1.3)\" && exit 0"
+  }
+}
