@@ -20,3 +20,32 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 
 Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03.
 Phase 2 (Project Setup) — in progress (M1: Project Skeleton).
+
+## Running Locally
+
+Requires Node.js 24 (see `.nvmrc`) and Docker Desktop.
+
+```
+cp .env.example .env
+docker compose up --build
+```
+
+- Backend: http://localhost:3001 (health check at `/health`)
+- Frontend: http://localhost:3000
+- Postgres: `localhost:5432` (credentials in `.env`)
+
+To run a single service outside Docker (faster iteration), install
+dependencies once at the repo root (`npm install`) and use that workspace's
+scripts, e.g. `cd backend && npm run start:dev` or `cd frontend && npm run
+dev`. The Postgres container's port is published to the host, so a
+natively-run backend can still reach it via the `DATABASE_URL` in `.env`.
+
+### Common commands (run from repo root)
+
+```
+npm run lint      # both workspaces
+npm run typecheck # both workspaces
+npm run test       # both workspaces
+npm run build       # both workspaces
+docker compose down -v # stop and wipe the local database volume
+```
