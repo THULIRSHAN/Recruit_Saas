@@ -5,12 +5,18 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Job, JobStatus } from '../generated/prisma/client';
+import {
+  Job,
+  JobStatus,
+  OrganizationStatus,
+  Prisma,
+} from '../generated/prisma/client';
 import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApplyPipelineTemplateDto } from './dto/apply-pipeline-template.dto';
 import { CreateJobDto } from './dto/create-job.dto';
 import { ListJobsQueryDto } from './dto/list-jobs-query.dto';
+import { PublicJobSearchQueryDto } from './dto/public-job-search-query.dto';
 import { ReplaceJobStagesDto } from './dto/replace-job-stages.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 
@@ -98,6 +104,69 @@ export class JobsService {
       data: dto,
     });
     return this.toDetail(updated);
+  }
+
+  // REQ-JOB-005: the one deliberately cross-tenant endpoint class in the
+  // whole system (docs/multi-tenancy.md §6) -- public, unauthenticated,
+  // spans every organization, but only ever returns PUBLISHED jobs
+  // belonging to ACTIVE orgs, enforced in the query itself (not just the
+  // UI), per that same section and CLAUDE.md's business-rules summary.
+  async search(query: PublicJobSearchQueryDto) {
+    const where: Prisma.JobWhereInput = {
+      status: JobStatus.PUBLISHED,
+      organization: { status: OrganizationStatus.ACTIVE },
+      ...(query.keyword
+        ? {
+            OR: [
+              { title: { contains: query.keyword, mode: 'insensitive' } },
+              {
+                description: { contains: query.keyword, mode: 'insensitive' },
+              },
+            ],
+          }
+        : {}),
+      ...(query.location
+        ? { location: { contains: query.location, mode: 'insensitive' } }
+        : {}),
+      ...(query.employmentType ? { employmentType: query.employmentType } : {}),
+      ...(query.organizationId ? { organizationId: query.organizationId } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.job.findMany({
+        where,
+        orderBy: { publishedAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: { organization: { select: { id: true, name: true } } },
+      }),
+      this.prisma.job.count({ where }),
+    ]);
+
+    return {
+      data: data.map((job) => this.toPublicDetail(job)),
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
+  }
+
+  // REQ-JOB-005's implied "job details" view (docs/api.md §1's frontend
+  // route list: "(public)/ -> ... public job search, job details"). Same
+  // PUBLISHED + ACTIVE-org filter as search() -- a DRAFT/CLOSED/ARCHIVED
+  // job, or one at a non-ACTIVE org, must not be confirmed to exist here
+  // any more than it would be in search results.
+  async getPublicOne(id: string) {
+    const job = await this.prisma.job.findFirst({
+      where: {
+        id,
+        status: JobStatus.PUBLISHED,
+        organization: { status: OrganizationStatus.ACTIVE },
+      },
+      include: { organization: { select: { id: true, name: true } } },
+    });
+    if (!job) {
+      throw new NotFoundException(JOB_NOT_FOUND_MESSAGE);
+    }
+    return this.toPublicDetail(job);
   }
 
   // REQ-PIPE-001: RecruitmentStage is snapshotted per-job, not a live
@@ -306,5 +375,28 @@ export class JobsService {
 
   private toStageDetail(stage: { id: string; name: string; order: number }) {
     return { id: stage.id, name: stage.name, order: stage.order };
+  }
+
+  // Deliberately narrower than toDetail() -- no createdById/status/
+  // updatedAt/closedAt/organizationId. Public candidate-facing response,
+  // not the staff-facing one.
+  private toPublicDetail(
+    job: Job & { organization: { id: string; name: string } },
+  ) {
+    return {
+      id: job.id,
+      title: job.title,
+      description: job.description,
+      department: job.department,
+      location: job.location,
+      employmentType: job.employmentType,
+      salaryMin: job.salaryMin,
+      salaryMax: job.salaryMax,
+      publishedAt: job.publishedAt,
+      organization: {
+        id: job.organization.id,
+        name: job.organization.name,
+      },
+    };
   }
 }

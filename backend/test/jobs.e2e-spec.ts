@@ -833,4 +833,167 @@ describe('JobsController (e2e)', () => {
       expect(job.status).not.toBe('ARCHIVED');
     });
   });
+
+  describe('GET /jobs/search', () => {
+    async function createPublishedJob(
+      token: string,
+      overrides: Record<string, unknown> = {},
+    ) {
+      const jobId = await createJob(token, overrides);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied'] });
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`);
+      return jobId;
+    }
+
+    it('returns PUBLISHED jobs at ACTIVE orgs, unauthenticated (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('SearchHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(token, {
+        title: 'Search Happy Job',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/jobs/search')
+        .expect(200);
+
+      const ids = (res.body.data as Array<{ id: string }>).map((j) => j.id);
+      expect(ids).toContain(jobId);
+      expect(res.body.data[0]).not.toHaveProperty('createdById');
+      expect(res.body.data[0]).not.toHaveProperty('status');
+    });
+
+    it('excludes DRAFT jobs', async () => {
+      const orgId = await registerAndApproveOrg('SearchExcludesDraft');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token, {
+        title: 'Search Excludes Draft Job',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/jobs/search')
+        .query({ keyword: 'Search Excludes Draft Job' })
+        .expect(200);
+
+      const ids = (res.body.data as Array<{ id: string }>).map((j) => j.id);
+      expect(ids).not.toContain(jobId);
+    });
+
+    it('excludes CLOSED jobs', async () => {
+      const orgId = await registerAndApproveOrg('SearchExcludesClosed');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(token, {
+        title: 'Search Excludes Closed Job',
+      });
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/close`)
+        .set('Authorization', `Bearer ${token}`);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/jobs/search')
+        .query({ keyword: 'Search Excludes Closed Job' })
+        .expect(200);
+
+      expect(res.body.data).toHaveLength(0);
+    });
+
+    it('excludes PUBLISHED jobs at a non-ACTIVE org', async () => {
+      // Directly seeds a staff member at a still-PENDING_APPROVAL org
+      // (bypassing the normal approve-then-invite flow) so a job can exist
+      // there without ever going through Super Admin approval.
+      const email = `pendingorg-owner-${Date.now()}@jobs-e2e.test`;
+      const regRes = await request(app.getHttpServer())
+        .post('/api/v1/organizations')
+        .send({
+          organizationName: `Org Jobs E2E Test SearchExcludesInactive ${Date.now()}`,
+          ownerFullName: 'Org Owner',
+          ownerEmail: email,
+          ownerPassword: 'password123',
+        });
+      const orgId = regRes.body.organization.id as string;
+      orgIdsToClean.push(orgId);
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(token, {
+        title: 'Search Excludes Inactive Org Job',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/jobs/search')
+        .query({ keyword: 'Search Excludes Inactive Org Job' })
+        .expect(200);
+
+      const ids = (res.body.data as Array<{ id: string }>).map((j) => j.id);
+      expect(ids).not.toContain(jobId);
+    });
+
+    it('filters by keyword', async () => {
+      const orgId = await registerAndApproveOrg('SearchKeyword');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const uniqueTitle = `Unique Keyword Job ${Date.now()}`;
+      await createPublishedJob(token, { title: uniqueTitle });
+      await createPublishedJob(token, { title: 'Unrelated Job' });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/jobs/search')
+        .query({ keyword: uniqueTitle })
+        .expect(200);
+
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ title: uniqueTitle });
+    });
+  });
+
+  describe('GET /jobs/public/:id', () => {
+    async function createPublishedJob(
+      token: string,
+      overrides: Record<string, unknown> = {},
+    ) {
+      const jobId = await createJob(token, overrides);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied'] });
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`);
+      return jobId;
+    }
+
+    it('returns a PUBLISHED job, unauthenticated (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('PublicDetailHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(token);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/public/${jobId}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: jobId,
+        organization: { id: orgId },
+      });
+      expect(res.body).not.toHaveProperty('createdById');
+      expect(res.body).not.toHaveProperty('organizationId');
+    });
+
+    it('returns 404 for a DRAFT job', async () => {
+      const orgId = await registerAndApproveOrg('PublicDetailDraft');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/public/${jobId}`)
+        .expect(404);
+    });
+
+    it('returns 404 for a nonexistent job id', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/jobs/public/does-not-exist')
+        .expect(404);
+    });
+  });
 });

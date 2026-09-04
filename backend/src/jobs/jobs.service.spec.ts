@@ -564,4 +564,127 @@ describe('JobsService', () => {
       );
     });
   });
+
+  describe('search', () => {
+    const publishedJob = {
+      ...baseJob,
+      status: 'PUBLISHED',
+      publishedAt: new Date('2026-02-01'),
+      organization: { id: 'org-1', name: 'Acme Recruiting' },
+    };
+
+    it('filters to PUBLISHED jobs at ACTIVE organizations, applying pagination', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findMany.mockResolvedValue([publishedJob]);
+      job.count.mockResolvedValue(1);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.search({ page: 1, pageSize: 20 });
+
+      expect(job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: 'PUBLISHED',
+            organization: { status: 'ACTIVE' },
+          },
+        }),
+      );
+      expect(result.data).toEqual([
+        {
+          id: 'job-1',
+          title: 'Software Engineer',
+          description: 'Build things.',
+          department: null,
+          location: null,
+          employmentType: null,
+          salaryMin: null,
+          salaryMax: null,
+          publishedAt: publishedJob.publishedAt,
+          organization: { id: 'org-1', name: 'Acme Recruiting' },
+        },
+      ]);
+      expect(result.data[0]).not.toHaveProperty('createdById');
+      expect(result.data[0]).not.toHaveProperty('status');
+      expect(result.meta).toEqual({ page: 1, pageSize: 20, total: 1 });
+    });
+
+    it('applies keyword/location/employmentType/organizationId filters when given', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findMany.mockResolvedValue([]);
+      job.count.mockResolvedValue(0);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await service.search({
+        keyword: 'engineer',
+        location: 'remote',
+        employmentType: 'FULL_TIME',
+        organizationId: 'org-1',
+        page: 1,
+        pageSize: 20,
+      });
+
+      expect(job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: 'PUBLISHED',
+            organization: { status: 'ACTIVE' },
+            OR: [
+              { title: { contains: 'engineer', mode: 'insensitive' } },
+              { description: { contains: 'engineer', mode: 'insensitive' } },
+            ],
+            location: { contains: 'remote', mode: 'insensitive' },
+            employmentType: 'FULL_TIME',
+            organizationId: 'org-1',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('getPublicOne', () => {
+    it('returns a PUBLISHED job at an ACTIVE organization', async () => {
+      const { prisma, job } = createPrismaMock();
+      const publishedJob = {
+        ...baseJob,
+        status: 'PUBLISHED',
+        organization: { id: 'org-1', name: 'Acme Recruiting' },
+      };
+      job.findFirst.mockResolvedValue(publishedJob);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.getPublicOne('job-1');
+
+      expect(job.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'job-1',
+          status: 'PUBLISHED',
+          organization: { status: 'ACTIVE' },
+        },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+      expect(result).toMatchObject({ id: 'job-1', title: 'Software Engineer' });
+    });
+
+    it('throws NotFoundException for a DRAFT/CLOSED/ARCHIVED job or one at a non-ACTIVE org', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.getPublicOne('job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
 });
