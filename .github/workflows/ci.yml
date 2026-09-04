@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ats_ci
+          POSTGRES_PASSWORD: ats_ci_password
+          POSTGRES_DB: ats_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ats_ci -d ats_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      POSTGRES_USER: ats_ci
+      POSTGRES_PASSWORD: ats_ci_password
+      POSTGRES_DB: ats_ci
+      POSTGRES_PORT: 5432
+      # No .env file exists in CI (never committed) -- these are set directly
+      # here instead, using localhost since the Postgres service container's
+      # port is published to the runner, same as a native (non-Docker) run.
+      DATABASE_URL: postgresql://ats_ci:ats_ci_password@localhost:5432/ats_ci?schema=public
+      BACKEND_PORT: 3001
+      FRONTEND_PORT: 3000
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      # Installs both workspaces; backend's postinstall hook regenerates the
+      # Prisma client, so lint/typecheck/test below don't need a separate step.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Build
+        run: npm run build
