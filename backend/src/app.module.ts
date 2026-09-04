@@ -8,6 +8,7 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { TenantGuard } from './auth/guards/tenant.guard';
 import { CandidatesModule } from './candidates/candidates.module';
 import { HealthModule } from './health/health.module';
+import { InterviewsModule } from './interviews/interviews.module';
 import { JobsModule } from './jobs/jobs.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PipelineTemplatesModule } from './pipeline-templates/pipeline-templates.module';
@@ -41,6 +42,7 @@ import { StorageModule } from './storage/storage.module';
     PipelineTemplatesModule,
     CandidatesModule,
     ApplicationsModule,
+    InterviewsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
