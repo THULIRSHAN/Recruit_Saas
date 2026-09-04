@@ -11,6 +11,7 @@ import { HealthModule } from './health/health.module';
 import { InterviewsModule } from './interviews/interviews.module';
 import { JobsModule } from './jobs/jobs.module';
 import { OffersModule } from './offers/offers.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PipelineTemplatesModule } from './pipeline-templates/pipeline-templates.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -45,6 +46,7 @@ import { StorageModule } from './storage/storage.module';
     ApplicationsModule,
     InterviewsModule,
     OffersModule,
+    OnboardingModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

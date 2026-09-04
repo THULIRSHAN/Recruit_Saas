@@ -68,6 +68,10 @@ const CANDIDATE_PERMISSIONS = [
   // REQ-OFFER-002's accept/decline action makes sense).
   'offer:read',
   'offer:respond',
+  // New permission (not a missing grant of an existing one) -- see
+  // docs/open-questions.md Q27. A candidate needs to view their own
+  // onboarding checklist to know what to upload.
+  'onboarding:read',
   'document:upload',
 ];
 

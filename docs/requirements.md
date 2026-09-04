@@ -212,7 +212,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Main flow:** HR Manager creates an `Offer` (title, compensation, start date, expiry date, optional offer letter document) linked to the hired `Application` → sends to candidate → candidate accepts/declines within the expiry window → on accept, `Application.stage = Hired`/`OfferAccepted`, onboarding is triggered; on decline, recruiter is notified and can reopen the pipeline.
 - **Priority:** P0
 
-*(REQ-DOC, REQ-ONB, REQ-POOL, REQ-UNI, REQ-SUB, REQ-PAY, REQ-NOTIF, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-DOC-001/002, REQ-ONB-001 — Onboarding Documents & Checklist
+
+- **Actors:** HR Manager (REQ-DOC-001, REQ-ONB-001), Candidate (REQ-DOC-002).
+- **Main flow:** Once a candidate accepts an `Offer` (REQ-OFFER-002), HR Manager starts onboarding by creating an `OnboardingChecklist` with an initial set of `OnboardingTask`s (each representing a requested document, e.g. "Submit ID proof") — a deliberate HR Manager action, not automatic, gated on the offer being `ACCEPTED`. HR Manager can add further tasks later (a document "request") as the process continues. The candidate views their checklist and uploads a `Document` against each task (private storage, same signed-URL pattern as CV upload, REQ-CAND-002/`security.md` §11) — multiple documents per task are allowed (e.g. front/back of an ID). HR Manager reviews an uploaded document and explicitly marks the task complete; a task does not auto-complete on upload, since REQ-ONB-001 names status *tracking* as an HR Manager capability, and an unreviewed upload could be wrong or incomplete.
+- **Business rules:** A task can only belong to one checklist, and a checklist to one `Offer` (`@@unique` in the schema). Documents are always privately stored; only the uploading candidate and HR Manager at the same org may access one (see `multi-tenancy.md` §3, `security.md` §11).
+- **Priority:** P1
+
+*(REQ-POOL, REQ-UNI, REQ-SUB, REQ-PAY, REQ-NOTIF, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
 
 ---
 

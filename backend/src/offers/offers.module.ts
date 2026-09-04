@@ -8,5 +8,6 @@ import { OffersService } from './offers.service';
   imports: [ApplicationsModule],
   controllers: [JobApplicationOfferController, ApplicationOfferController],
   providers: [OffersService],
+  exports: [OffersService],
 })
 export class OffersModule {}

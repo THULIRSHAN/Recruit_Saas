@@ -20,7 +20,7 @@ Instead: **centralized, declarative, permission-based** authorization — a sing
 
 | Role | Key permissions |
 |---|---|
-| **Candidate** | `application:create` (own), `application:read` (own), `application:withdraw` (own), `candidateProfile:update` (own), `offer:read` (own), `offer:respond` (own), `document:upload` (own) |
+| **Candidate** | `application:create` (own), `application:read` (own), `application:withdraw` (own), `candidateProfile:update` (own), `offer:read` (own), `offer:respond` (own), `onboarding:read` (own), `document:upload` (own) |
 | **Company Owner** | all org-scoped permissions below, plus `organization:update`, `user:invite`, `user:remove`, `subscription:manage`, `role:assign` |
 | **Recruiter** | `job:create`, `job:update`, `job:publish`, `job:close`, `job:read`, `application:read`, `application:screen`, `application:shortlist`, `pipeline:manage`, `interview:schedule`, `interview:read`, `evaluation:read` |
 | **Hiring Manager** | `application:read`, `evaluation:read`, `application:decide` (hire/reject), `job:read` |
