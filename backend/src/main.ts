@@ -12,6 +12,11 @@ async function bootstrap() {
   config({ path: path.resolve(process.cwd(), '../.env'), quiet: true });
 
   const app = await NestFactory.create(AppModule);
+  // docs/api.md §1: every API endpoint is versioned from day one. `health`
+  // is excluded -- it's an infra-level check (Docker healthcheck, load
+  // balancer probes), not a versioned API resource, and should stay at a
+  // stable path across API versions.
+  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.use(cookieParser());
   // whitelist: strip unknown properties instead of erroring, so DTOs are the
   // single source of truth for accepted fields (CLAUDE.md rule 5).

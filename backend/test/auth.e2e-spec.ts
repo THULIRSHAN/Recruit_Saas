@@ -17,8 +17,11 @@ describe('AuthController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    // Mirrors main.ts -- /auth/refresh reads the refresh token from a
-    // cookie, which Express doesn't parse without this middleware.
+    // Mirrors main.ts -- tests build their own app instance rather than
+    // calling bootstrap(), so this isn't inherited automatically.
+    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+    // /auth/refresh reads the refresh token from a cookie, which Express
+    // doesn't parse without this middleware.
     app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
@@ -72,7 +75,7 @@ describe('AuthController (e2e)', () => {
       const email = `register-${Date.now()}@auth-e2e.test`;
 
       const res = await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({ email, password: 'password123', fullName: 'Ada Lovelace' })
         .expect(201);
 
@@ -92,7 +95,7 @@ describe('AuthController (e2e)', () => {
       const email = `weak-${Date.now()}@auth-e2e.test`;
 
       await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({ email, password: 'short', fullName: 'Weak Password' })
         .expect(400);
 
@@ -103,7 +106,7 @@ describe('AuthController (e2e)', () => {
 
     it('rejects an invalid email with 400', async () => {
       await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'not-an-email',
           password: 'password123',
@@ -115,7 +118,7 @@ describe('AuthController (e2e)', () => {
     it('returns a generic 409 on duplicate email, without leaking which field failed', async () => {
       const email = `duplicate-${Date.now()}@auth-e2e.test`;
       await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email,
           password: 'password123',
@@ -124,7 +127,7 @@ describe('AuthController (e2e)', () => {
         .expect(201);
 
       const res = await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email,
           password: 'password123',
@@ -167,7 +170,7 @@ describe('AuthController (e2e)', () => {
       const rawToken = await createToken(user.id);
 
       const res = await request(app.getHttpServer())
-        .get('/auth/verify-email')
+        .get('/api/v1/auth/verify-email')
         .query({ token: rawToken })
         .expect(200);
 
@@ -180,7 +183,7 @@ describe('AuthController (e2e)', () => {
 
     it('rejects an unknown token with 400', async () => {
       await request(app.getHttpServer())
-        .get('/auth/verify-email')
+        .get('/api/v1/auth/verify-email')
         .query({ token: 'not-a-real-token' })
         .expect(400);
     });
@@ -190,7 +193,7 @@ describe('AuthController (e2e)', () => {
       const rawToken = await createToken(user.id, { usedAt: new Date() });
 
       await request(app.getHttpServer())
-        .get('/auth/verify-email')
+        .get('/api/v1/auth/verify-email')
         .query({ token: rawToken })
         .expect(400);
     });
@@ -202,7 +205,7 @@ describe('AuthController (e2e)', () => {
       });
 
       await request(app.getHttpServer())
-        .get('/auth/verify-email')
+        .get('/api/v1/auth/verify-email')
         .query({ token: rawToken })
         .expect(400);
     });
@@ -213,7 +216,7 @@ describe('AuthController (e2e)', () => {
       const user = await createCandidateWithPassword('login-ok', 'password123');
 
       const res = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
 
@@ -236,7 +239,7 @@ describe('AuthController (e2e)', () => {
       );
 
       const res = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'wrong-password' })
         .expect(401);
 
@@ -245,7 +248,7 @@ describe('AuthController (e2e)', () => {
 
     it('rejects an unknown email with the same generic 401 message', async () => {
       const res = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           email: `nobody-${Date.now()}@auth-e2e.test`,
           password: 'password123',
@@ -263,13 +266,13 @@ describe('AuthController (e2e)', () => {
         'password123',
       );
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
       const cookie = loginRes.headers['set-cookie'] as unknown as string[];
 
       const refreshRes = await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', cookie)
         .expect(200);
 
@@ -285,18 +288,20 @@ describe('AuthController (e2e)', () => {
       // The old cookie was revoked by the rotation above -- replaying it
       // must fail, which is what makes a stolen-and-reused token detectable.
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', cookie)
         .expect(401);
     });
 
     it('rejects a request with no refresh cookie at all', async () => {
-      await request(app.getHttpServer()).post('/auth/refresh').expect(401);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/refresh')
+        .expect(401);
     });
 
     it('rejects an unknown refresh token', async () => {
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', ['refresh_token=not-a-real-token'])
         .expect(401);
     });
@@ -309,13 +314,13 @@ describe('AuthController (e2e)', () => {
         'password123',
       );
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
       const cookie = loginRes.headers['set-cookie'] as unknown as string[];
 
       const logoutRes = await request(app.getHttpServer())
-        .post('/auth/logout')
+        .post('/api/v1/auth/logout')
         .set('Cookie', cookie)
         .expect(200);
       expect(logoutRes.body).toEqual({ loggedOut: true });
@@ -327,21 +332,21 @@ describe('AuthController (e2e)', () => {
 
       // The revoked token must no longer work for refresh.
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', cookie)
         .expect(401);
     });
 
     it('succeeds even with no refresh cookie (idempotent)', async () => {
       const res = await request(app.getHttpServer())
-        .post('/auth/logout')
+        .post('/api/v1/auth/logout')
         .expect(200);
       expect(res.body).toEqual({ loggedOut: true });
     });
 
     it('succeeds even with an already-invalid token', async () => {
       const res = await request(app.getHttpServer())
-        .post('/auth/logout')
+        .post('/api/v1/auth/logout')
         .set('Cookie', ['refresh_token=not-a-real-token'])
         .expect(200);
       expect(res.body).toEqual({ loggedOut: true });
@@ -356,12 +361,12 @@ describe('AuthController (e2e)', () => {
       );
 
       const existsRes = await request(app.getHttpServer())
-        .post('/auth/forgot-password')
+        .post('/api/v1/auth/forgot-password')
         .send({ email: user.email })
         .expect(200);
 
       const missingRes = await request(app.getHttpServer())
-        .post('/auth/forgot-password')
+        .post('/api/v1/auth/forgot-password')
         .send({ email: `nobody-${Date.now()}@auth-e2e.test` })
         .expect(200);
 
@@ -374,7 +379,7 @@ describe('AuthController (e2e)', () => {
         'oldpassword123',
       );
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'oldpassword123' })
         .expect(200);
       const preResetCookie = loginRes.headers[
@@ -392,32 +397,32 @@ describe('AuthController (e2e)', () => {
       });
 
       await request(app.getHttpServer())
-        .post('/auth/reset-password')
+        .post('/api/v1/auth/reset-password')
         .send({ token: rawToken, newPassword: 'newpassword456' })
         .expect(200);
 
       // Old password no longer works.
       await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'oldpassword123' })
         .expect(401);
 
       // New password works.
       await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'newpassword456' })
         .expect(200);
 
       // Pre-reset session was force-revoked (old password may have been compromised).
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', preResetCookie)
         .expect(401);
     });
 
     it('rejects an unknown reset token with 400', async () => {
       await request(app.getHttpServer())
-        .post('/auth/reset-password')
+        .post('/api/v1/auth/reset-password')
         .send({ token: 'not-a-real-token', newPassword: 'newpassword456' })
         .expect(400);
     });
@@ -438,7 +443,7 @@ describe('AuthController (e2e)', () => {
       });
 
       await request(app.getHttpServer())
-        .post('/auth/reset-password')
+        .post('/api/v1/auth/reset-password')
         .send({ token: rawToken, newPassword: 'short' })
         .expect(400);
     });
@@ -459,12 +464,12 @@ describe('AuthController (e2e)', () => {
 
         for (let i = 0; i < 5; i++) {
           await request(app.getHttpServer())
-            .post('/auth/login')
+            .post('/api/v1/auth/login')
             .send({ email: user.email, password: 'wrong-password' });
         }
 
         await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ email: user.email, password: 'wrong-password' })
           .expect(429);
       } finally {
@@ -475,12 +480,12 @@ describe('AuthController (e2e)', () => {
 
   describe('GET /auth/me', () => {
     it('rejects a request with no access token', async () => {
-      await request(app.getHttpServer()).get('/auth/me').expect(401);
+      await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
     });
 
     it('rejects a garbage token', async () => {
       await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', 'Bearer not-a-real-jwt')
         .expect(401);
     });
@@ -488,12 +493,12 @@ describe('AuthController (e2e)', () => {
     it('returns the decoded token payload for a valid access token', async () => {
       const user = await createCandidateWithPassword('me-ok', 'password123');
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
 
       const res = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
         .expect(200);
 
@@ -525,12 +530,12 @@ describe('AuthController (e2e)', () => {
       });
 
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
 
       const res = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
         .expect(200);
 
@@ -568,12 +573,12 @@ describe('AuthController (e2e)', () => {
       });
 
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
 
       const res = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
         .expect(200);
 
@@ -611,20 +616,20 @@ describe('AuthController (e2e)', () => {
       });
 
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
       const loginCookie = loginRes.headers['set-cookie'] as unknown as string[];
 
       // Ambiguous at login (2 orgs) -- confirms the starting point.
       const meBeforeRes = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
         .expect(200);
       expect(meBeforeRes.body).toMatchObject({ orgId: null, roles: [] });
 
       const switchRes = await request(app.getHttpServer())
-        .post('/auth/switch-org')
+        .post('/api/v1/auth/switch-org')
         .set('Cookie', loginCookie)
         .send({ organizationId: org2.id })
         .expect(200);
@@ -633,7 +638,7 @@ describe('AuthController (e2e)', () => {
       ] as unknown as string[];
 
       const meAfterRes = await request(app.getHttpServer())
-        .get('/auth/me')
+        .get('/api/v1/auth/me')
         .set('Authorization', `Bearer ${switchRes.body.accessToken as string}`)
         .expect(200);
       expect(meAfterRes.body).toMatchObject({
@@ -644,12 +649,12 @@ describe('AuthController (e2e)', () => {
 
       // The pre-switch refresh token was rotated away by switch-org.
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', loginCookie)
         .expect(401);
       // The post-switch one is live.
       await request(app.getHttpServer())
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .set('Cookie', switchCookie)
         .expect(200);
 
@@ -667,13 +672,13 @@ describe('AuthController (e2e)', () => {
         'password123',
       );
       const loginRes = await request(app.getHttpServer())
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({ email: user.email, password: 'password123' })
         .expect(200);
       const cookie = loginRes.headers['set-cookie'] as unknown as string[];
 
       await request(app.getHttpServer())
-        .post('/auth/switch-org')
+        .post('/api/v1/auth/switch-org')
         .set('Cookie', cookie)
         .send({ organizationId: 'some-org-i-am-not-in' })
         .expect(404);
@@ -681,7 +686,7 @@ describe('AuthController (e2e)', () => {
 
     it('rejects a request with no refresh cookie', async () => {
       await request(app.getHttpServer())
-        .post('/auth/switch-org')
+        .post('/api/v1/auth/switch-org')
         .send({ organizationId: 'irrelevant' })
         .expect(401);
     });

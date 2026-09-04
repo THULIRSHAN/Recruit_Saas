@@ -12,6 +12,9 @@ describe('AppModule (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    // Mirrors main.ts -- tests build their own app instance rather than
+    // calling bootstrap(), so this isn't inherited automatically.
+    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
     await app.init();
   });
 

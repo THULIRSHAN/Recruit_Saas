@@ -2,9 +2,11 @@ import type { CookieOptions } from 'express';
 
 export const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
-// Scoped to /auth: only /auth/refresh and /auth/logout need to read this
-// cookie, so there's no reason to send it on every request.
-export const REFRESH_TOKEN_COOKIE_PATH = '/auth';
+// Scoped to /api/v1/auth: only refresh/logout/switch-org need to read this
+// cookie, so there's no reason to send it on every request. Must match the
+// global API prefix (main.ts) -- if this drifts from the real route paths,
+// the browser silently stops sending the cookie where it's needed.
+export const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
 
 // httpOnly + Secure (prod only, since local/dev runs over plain http) +
 // SameSite=Strict per docs/authentication.md §2 -- this is what actually

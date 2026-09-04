@@ -108,7 +108,7 @@ export class AuthService {
     // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
     // yet, so the link is logged rather than emailed.
     this.logger.log(
-      `Verification link for ${user.email}: /auth/verify-email?token=${rawToken}`,
+      `Verification link for ${user.email}: /api/v1/auth/verify-email?token=${rawToken}`,
     );
 
     return {
@@ -155,7 +155,7 @@ export class AuthService {
     // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
     // yet, so the link is logged rather than emailed.
     this.logger.log(
-      `Password reset link for ${user.email}: /auth/reset-password?token=${rawToken}`,
+      `Password reset link for ${user.email}: /api/v1/auth/reset-password?token=${rawToken}`,
     );
   }
 
