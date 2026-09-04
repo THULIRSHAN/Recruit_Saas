@@ -43,9 +43,11 @@ natively-run backend can still reach it via the `DATABASE_URL` in `.env`.
 ### Common commands (run from repo root)
 
 ```
-npm run lint      # both workspaces
-npm run typecheck # both workspaces
-npm run test       # both workspaces
-npm run build       # both workspaces
+npm run lint         # both workspaces
+npm run typecheck    # both workspaces
+npm run test          # both workspaces
+npm run build          # both workspaces
+npm run format:check    # Prettier check, whole repo (code only, not /docs)
+npm run format           # Prettier write, whole repo (code only, not /docs)
 docker compose down -v # stop and wipe the local database volume
 ```

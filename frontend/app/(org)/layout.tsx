@@ -1,7 +1,3 @@
-export default function OrgLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function OrgLayout({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 flex-col">{children}</div>;
 }
