@@ -260,14 +260,17 @@ export class AuthService {
     });
   }
 
-  private async issueTokenPair(user: {
-    id: string;
-    isSuperAdmin: boolean;
-  }): Promise<TokenPair> {
+  private async issueTokenPair(
+    user: { id: string; isSuperAdmin: boolean },
+    orgContext?: { orgId: string; roles: string[] },
+  ): Promise<TokenPair> {
+    const { orgId, roles } =
+      orgContext ?? (await this.resolveDefaultOrgContext(user.id));
+
     const payload: AccessTokenPayload = {
       sub: user.id,
-      orgId: null,
-      roles: [],
+      orgId,
+      roles,
       isSuperAdmin: user.isSuperAdmin,
     };
     const accessToken = await this.jwt.signAsync(payload);
@@ -283,5 +286,30 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
+  }
+
+  // Per docs/authentication.md §5: auto-select only when unambiguous (a
+  // pure candidate with zero memberships, or a user belonging to exactly
+  // one org). Two or more memberships get no default context -- the
+  // frontend must call /auth/switch-org (M4.3) to pick one explicitly,
+  // rather than this silently guessing which org the user meant.
+  private async resolveDefaultOrgContext(
+    userId: string,
+  ): Promise<{ orgId: string | null; roles: string[] }> {
+    const memberships = await this.prisma.userOrganizationRole.findMany({
+      where: { userId },
+      include: { role: true },
+    });
+
+    const orgIds = [...new Set(memberships.map((m) => m.organizationId))];
+    if (orgIds.length !== 1) {
+      return { orgId: null, roles: [] };
+    }
+
+    const [orgId] = orgIds;
+    const roles = memberships
+      .filter((m) => m.organizationId === orgId)
+      .map((m) => m.role.key);
+    return { orgId, roles };
   }
 }

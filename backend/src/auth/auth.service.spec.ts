@@ -21,6 +21,7 @@ function createPrismaMock() {
       findUnique: jest.fn(),
       updateMany: jest.fn(),
     },
+    userOrganizationRole: { findMany: jest.fn().mockResolvedValue([]) },
   } as unknown as PrismaService;
 }
 
@@ -215,6 +216,90 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'nobody@example.com', password: 'password123' }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('issues an empty org context (candidate) for a user with no org memberships', async () => {
+      const prisma = createPrismaMock();
+      const jwt = {
+        signAsync: jest.fn().mockResolvedValue('signed.jwt.token'),
+      } as unknown as JwtService;
+      const service = new AuthService(prisma, jwt);
+      const passwordHash = await service.hashPassword('password123');
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'candidate@example.com',
+        passwordHash,
+        isSuperAdmin: false,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.login({
+        email: 'candidate@example.com',
+        password: 'password123',
+      });
+
+      expect(jwt.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: null, roles: [] }) as object,
+      );
+    });
+
+    it('auto-selects the single org and all role keys held there when membership is unambiguous', async () => {
+      const prisma = createPrismaMock();
+      const jwt = {
+        signAsync: jest.fn().mockResolvedValue('signed.jwt.token'),
+      } as unknown as JwtService;
+      const service = new AuthService(prisma, jwt);
+      const passwordHash = await service.hashPassword('password123');
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'staff@example.com',
+        passwordHash,
+        isSuperAdmin: false,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([
+        { organizationId: 'org-1', role: { key: 'RECRUITER' } },
+        { organizationId: 'org-1', role: { key: 'HIRING_MANAGER' } },
+      ]);
+
+      await service.login({
+        email: 'staff@example.com',
+        password: 'password123',
+      });
+
+      expect(jwt.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          roles: ['RECRUITER', 'HIRING_MANAGER'],
+        }) as object,
+      );
+    });
+
+    it('leaves org context empty (requires explicit switch-org) when the user belongs to more than one org', async () => {
+      const prisma = createPrismaMock();
+      const jwt = {
+        signAsync: jest.fn().mockResolvedValue('signed.jwt.token'),
+      } as unknown as JwtService;
+      const service = new AuthService(prisma, jwt);
+      const passwordHash = await service.hashPassword('password123');
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'multi-org@example.com',
+        passwordHash,
+        isSuperAdmin: false,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([
+        { organizationId: 'org-1', role: { key: 'RECRUITER' } },
+        { organizationId: 'org-2', role: { key: 'COMPANY_OWNER' } },
+      ]);
+
+      await service.login({
+        email: 'multi-org@example.com',
+        password: 'password123',
+      });
+
+      expect(jwt.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: null, roles: [] }) as object,
+      );
     });
 
     it('rejects a wrong password with the same generic 401 as an unknown email', async () => {

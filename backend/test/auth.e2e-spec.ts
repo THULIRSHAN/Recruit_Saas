@@ -488,5 +488,87 @@ describe('AuthController (e2e)', () => {
         isSuperAdmin: false,
       });
     });
+
+    it('populates orgId/roles at login for a user with exactly one org membership', async () => {
+      const user = await createCandidateWithPassword(
+        'me-single-org',
+        'password123',
+      );
+      const org = await prisma.organization.create({
+        data: { name: `Test Org ${Date.now()}` },
+      });
+      const recruiterRole = await prisma.role.findUniqueOrThrow({
+        where: { key: 'RECRUITER' },
+      });
+      await prisma.userOrganizationRole.create({
+        data: {
+          userId: user.id,
+          organizationId: org.id,
+          roleId: recruiterRole.id,
+        },
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        sub: user.id,
+        orgId: org.id,
+        roles: ['RECRUITER'],
+      });
+
+      await prisma.userOrganizationRole.deleteMany({
+        where: { userId: user.id },
+      });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+
+    it('leaves orgId/roles empty at login for a user with two org memberships', async () => {
+      const user = await createCandidateWithPassword(
+        'me-multi-org',
+        'password123',
+      );
+      const org1 = await prisma.organization.create({
+        data: { name: `Test Org A ${Date.now()}` },
+      });
+      const org2 = await prisma.organization.create({
+        data: { name: `Test Org B ${Date.now()}` },
+      });
+      const ownerRole = await prisma.role.findUniqueOrThrow({
+        where: { key: 'COMPANY_OWNER' },
+      });
+      await prisma.userOrganizationRole.createMany({
+        data: [
+          { userId: user.id, organizationId: org1.id, roleId: ownerRole.id },
+          { userId: user.id, organizationId: org2.id, roleId: ownerRole.id },
+        ],
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ sub: user.id, orgId: null, roles: [] });
+
+      await prisma.userOrganizationRole.deleteMany({
+        where: { userId: user.id },
+      });
+      await prisma.organization.deleteMany({
+        where: { id: { in: [org1.id, org2.id] } },
+      });
+    });
   });
 });
