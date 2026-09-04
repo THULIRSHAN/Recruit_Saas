@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { JobsService } from './jobs.service';
 import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
@@ -369,7 +370,7 @@ describe('JobsService', () => {
       });
     });
 
-    it('propagates NotFoundException from a cross-tenant or nonexistent template', async () => {
+    it('converts a cross-tenant or nonexistent template into UnprocessableEntityException (docs/open-questions.md Q18)', async () => {
       const { prisma, job, recruitmentStage } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
       const pipelineTemplatesService = createPipelineTemplatesServiceMock();
@@ -382,7 +383,7 @@ describe('JobsService', () => {
         service.applyTemplate('org-1', 'job-1', {
           pipelineTemplateId: 'template-1',
         }),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
       expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
     });
 
@@ -425,7 +426,7 @@ describe('JobsService', () => {
       expect(result).toMatchObject({ status: 'PUBLISHED' });
     });
 
-    it('throws ConflictException if the job has no recruitment stages', async () => {
+    it('throws UnprocessableEntityException if the job has no recruitment stages (docs/open-questions.md Q18)', async () => {
       const { prisma, job, recruitmentStage } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
       recruitmentStage.count.mockResolvedValue(0);
@@ -435,7 +436,7 @@ describe('JobsService', () => {
       );
 
       await expect(service.publish('org-1', 'job-1')).rejects.toBeInstanceOf(
-        ConflictException,
+        UnprocessableEntityException,
       );
       expect(job.update).not.toHaveBeenCalled();
     });

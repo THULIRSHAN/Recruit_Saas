@@ -586,7 +586,7 @@ describe('JobsController (e2e)', () => {
       ]);
     });
 
-    it('returns 404 when the template belongs to a different org', async () => {
+    it('returns 422 when the template belongs to a different org (docs/open-questions.md Q18)', async () => {
       const orgAId = await registerAndApproveOrg('ApplyTemplateCrossA');
       const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
       const templateId = await createTemplate(tokenA);
@@ -599,7 +599,7 @@ describe('JobsController (e2e)', () => {
         .post(`/api/v1/jobs/${jobId}/stages/apply-template`)
         .set('Authorization', `Bearer ${tokenB}`)
         .send({ pipelineTemplateId: templateId })
-        .expect(404);
+        .expect(422);
 
       const stages = await prisma.recruitmentStage.findMany({
         where: { jobId },
@@ -643,7 +643,7 @@ describe('JobsController (e2e)', () => {
       expect(res.body.publishedAt).not.toBeNull();
     });
 
-    it('returns 409 if the job has no recruitment stages', async () => {
+    it('returns 422 if the job has no recruitment stages (docs/open-questions.md Q18)', async () => {
       const orgId = await registerAndApproveOrg('PublishNoStages');
       const token = await addStaffAndLogin(orgId, 'RECRUITER');
       const jobId = await createJob(token);
@@ -651,7 +651,7 @@ describe('JobsController (e2e)', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/jobs/${jobId}/publish`)
         .set('Authorization', `Bearer ${token}`)
-        .expect(409);
+        .expect(422);
     });
 
     it('returns 409 if the job is already published', async () => {

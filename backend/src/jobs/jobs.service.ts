@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Job, JobStatus } from '../generated/prisma/client';
 import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
@@ -135,13 +136,28 @@ export class JobsService {
     const organizationId = this.requireOrgId(orgId);
     await this.requireJob(jobId, organizationId);
 
-    // getOne 404s if the template doesn't exist or belongs to another org
-    // -- reusing PipelineTemplatesService's own tenant check rather than
-    // duplicating it here.
-    const template = await this.pipelineTemplatesService.getOne(
-      orgId,
-      dto.pipelineTemplateId,
-    );
+    // docs/api.md §2's own worked example for this exact field: "422
+    // (referenced pipelineTemplateId belongs to a different org)". This is
+    // a foreign id referenced as an *input* to an action on the caller's
+    // own resource, not a direct fetch of the foreign resource by its own
+    // URL :id -- so multi-tenancy.md §5's "cross-tenant access -> 404"
+    // rule (which is about the latter) doesn't apply here. Still collapses
+    // "doesn't exist" and "belongs to another org" into one response so
+    // neither is distinguishable to the caller.
+    let template;
+    try {
+      template = await this.pipelineTemplatesService.getOne(
+        orgId,
+        dto.pipelineTemplateId,
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new UnprocessableEntityException(
+          'pipelineTemplateId does not refer to a pipeline template in your organization.',
+        );
+      }
+      throw error;
+    }
     const stageNames = [...template.stages]
       .sort((a, b) => a.order - b.order)
       .map((stage) => stage.name);
@@ -167,7 +183,11 @@ export class JobsService {
       where: { jobId: id },
     });
     if (stageCount === 0) {
-      throw new ConflictException(
+      // 422, not 409 -- docs/api.md §1's own literal example: "422
+      // semantically invalid (e.g., publishing a job with no pipeline
+      // stages)". Distinct from the "already published" case just above,
+      // which is a genuine resource-state conflict (409).
+      throw new UnprocessableEntityException(
         'Job must have at least one recruitment stage before it can be published.',
       );
     }
