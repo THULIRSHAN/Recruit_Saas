@@ -4,20 +4,41 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired verification token.';
+const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
+
+export interface AccessTokenPayload {
+  sub: string;
+  // Org-scoped role keys/orgId are always empty/null until M4 (RBAC) and
+  // M5 (Organizations) exist -- there is no membership to reflect yet.
+  orgId: string | null;
+  roles: string[];
+  isSuperAdmin: boolean;
+}
+
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS ?? 12);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+  ) {}
 
   hashPassword(plain: string): Promise<string> {
     return bcrypt.hash(plain, this.saltRounds);
@@ -120,5 +141,47 @@ export class AuthService {
     });
 
     return { verified: true };
+  }
+
+  async login(dto: LoginDto): Promise<TokenPair> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    // Same generic message whether the email doesn't exist or the password
+    // is wrong -- confirming which one it was is a user-enumeration leak.
+    if (
+      !user ||
+      !(await this.comparePassword(dto.password, user.passwordHash))
+    ) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    return this.issueTokenPair(user);
+  }
+
+  private async issueTokenPair(user: {
+    id: string;
+    isSuperAdmin: boolean;
+  }): Promise<TokenPair> {
+    const payload: AccessTokenPayload = {
+      sub: user.id,
+      orgId: null,
+      roles: [],
+      isSuperAdmin: user.isSuperAdmin,
+    };
+    const accessToken = await this.jwt.signAsync(payload);
+
+    const refreshToken = this.generateOpaqueToken();
+    const ttlDays = Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 7);
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: this.hashOpaqueToken(refreshToken),
+        expiresAt: new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    return { accessToken, refreshToken };
   }
 }

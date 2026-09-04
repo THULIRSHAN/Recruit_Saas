@@ -1,22 +1,35 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 
 function createPrismaMock() {
   return {
-    user: { create: jest.fn(), update: jest.fn() },
+    user: { create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
     verificationToken: {
       create: jest.fn(),
       findUnique: jest.fn(),
       updateMany: jest.fn(),
     },
+    refreshToken: { create: jest.fn() },
   } as unknown as PrismaService;
+}
+
+function createService(prisma: PrismaService) {
+  const jwt = {
+    signAsync: jest.fn().mockResolvedValue('signed.jwt.token'),
+  } as unknown as JwtService;
+  return new AuthService(prisma, jwt);
 }
 
 describe('AuthService', () => {
   describe('password hashing', () => {
-    const service = new AuthService(createPrismaMock());
+    const service = createService(createPrismaMock());
 
     it('hashes a password and verifies it against the same plaintext', async () => {
       const hash = await service.hashPassword('correct-horse-battery-staple');
@@ -35,7 +48,7 @@ describe('AuthService', () => {
   });
 
   describe('opaque tokens', () => {
-    const service = new AuthService(createPrismaMock());
+    const service = createService(createPrismaMock());
 
     it('generates a different token every call', () => {
       expect(service.generateOpaqueToken()).not.toBe(
@@ -61,7 +74,7 @@ describe('AuthService', () => {
         emailVerified: false,
         passwordHash: 'should-never-be-returned',
       });
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
 
       const result = await service.register({
         email: 'candidate@example.com',
@@ -87,7 +100,7 @@ describe('AuthService', () => {
           clientVersion: 'test',
         }),
       );
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
 
       await expect(
         service.register({
@@ -102,8 +115,7 @@ describe('AuthService', () => {
   describe('verifyEmail', () => {
     it('marks the user verified for a valid, unused, unexpired token', async () => {
       const prisma = createPrismaMock();
-      const token = 'raw-token';
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
       (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
         id: 'vt-1',
         userId: 'user-1',
@@ -115,7 +127,7 @@ describe('AuthService', () => {
         count: 1,
       });
 
-      await expect(service.verifyEmail(token)).resolves.toEqual({
+      await expect(service.verifyEmail('raw-token')).resolves.toEqual({
         verified: true,
       });
       expect(prisma.user.update).toHaveBeenCalledWith({
@@ -129,7 +141,7 @@ describe('AuthService', () => {
       (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue(
         null,
       );
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
 
       await expect(service.verifyEmail('bogus')).rejects.toBeInstanceOf(
         BadRequestException,
@@ -145,7 +157,7 @@ describe('AuthService', () => {
         usedAt: new Date(),
         expiresAt: new Date(Date.now() + 60_000),
       });
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
 
       await expect(service.verifyEmail('used-token')).rejects.toBeInstanceOf(
         BadRequestException,
@@ -161,11 +173,63 @@ describe('AuthService', () => {
         usedAt: null,
         expiresAt: new Date(Date.now() - 1),
       });
-      const service = new AuthService(prisma);
+      const service = createService(prisma);
 
       await expect(service.verifyEmail('expired-token')).rejects.toBeInstanceOf(
         BadRequestException,
       );
+    });
+  });
+
+  describe('login', () => {
+    it('issues an access + refresh token pair for correct credentials', async () => {
+      const prisma = createPrismaMock();
+      const service = createService(prisma);
+      const passwordHash = await service.hashPassword('password123');
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'candidate@example.com',
+        passwordHash,
+        isSuperAdmin: false,
+      });
+
+      const result = await service.login({
+        email: 'candidate@example.com',
+        password: 'password123',
+      });
+
+      expect(result.accessToken).toBe('signed.jwt.token');
+      expect(typeof result.refreshToken).toBe('string');
+      expect(prisma.refreshToken.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an unknown email with a generic 401', async () => {
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      const service = createService(prisma);
+
+      await expect(
+        service.login({ email: 'nobody@example.com', password: 'password123' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects a wrong password with the same generic 401 as an unknown email', async () => {
+      const prisma = createPrismaMock();
+      const service = createService(prisma);
+      const passwordHash = await service.hashPassword('correct-password');
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'candidate@example.com',
+        passwordHash,
+        isSuperAdmin: false,
+      });
+
+      await expect(
+        service.login({
+          email: 'candidate@example.com',
+          password: 'wrong-password',
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

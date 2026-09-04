@@ -176,4 +176,63 @@ describe('AuthController (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('POST /auth/login', () => {
+    async function createCandidateWithPassword(
+      emailSuffix: string,
+      password: string,
+    ) {
+      const email = `${emailSuffix}-${Date.now()}@auth-e2e.test`;
+      const passwordHash = await authService.hashPassword(password);
+      return prisma.user.create({
+        data: { email, passwordHash, fullName: 'Login Test' },
+      });
+    }
+
+    it('logs in with correct credentials, returning an access token and setting a refresh cookie', async () => {
+      const user = await createCandidateWithPassword('login-ok', 'password123');
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+
+      expect(typeof res.body.accessToken).toBe('string');
+      expect(res.body).not.toHaveProperty('refreshToken');
+
+      const setCookie = res.headers['set-cookie'];
+      expect(setCookie).toBeDefined();
+      const cookieHeader = Array.isArray(setCookie)
+        ? setCookie.join(';')
+        : String(setCookie);
+      expect(cookieHeader).toMatch(/refresh_token=/);
+      expect(cookieHeader).toMatch(/HttpOnly/i);
+    });
+
+    it('rejects a wrong password with a generic 401', async () => {
+      const user = await createCandidateWithPassword(
+        'login-wrong-pw',
+        'password123',
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'wrong-password' })
+        .expect(401);
+
+      expect(res.body.message).toBe('Invalid email or password.');
+    });
+
+    it('rejects an unknown email with the same generic 401 message', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({
+          email: `nobody-${Date.now()}@auth-e2e.test`,
+          password: 'password123',
+        })
+        .expect(401);
+
+      expect(res.body.message).toBe('Invalid email or password.');
+    });
+  });
 });
