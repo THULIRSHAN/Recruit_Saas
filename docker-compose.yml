@@ -36,6 +36,11 @@ services:
       PASSWORD_RESET_TTL_MINUTES: ${PASSWORD_RESET_TTL_MINUTES:-60}
       INVITATION_TTL_DAYS: ${INVITATION_TTL_DAYS:-7}
       THROTTLE_ENABLED: ${THROTTLE_ENABLED:-true}
+      # docs/open-questions.md Q20 -- local-disk StorageService stub, no
+      # volume mounted for it: uploaded files are ephemeral in this
+      # container and lost on recreation, which is fine for a dev stub.
+      STORAGE_LOCAL_DIR: ${STORAGE_LOCAL_DIR:-storage}
+      STORAGE_SIGNING_SECRET: ${STORAGE_SIGNING_SECRET}
     ports:
       - '${BACKEND_PORT:-3001}:3001'
 

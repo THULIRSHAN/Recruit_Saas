@@ -3,3 +3,7 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# Local-disk stub for StorageService (docs/decisions/ADR-004) -- never
+# real user data in this repo, and moot once a real provider is wired in.
+/storage

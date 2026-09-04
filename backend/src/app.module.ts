@@ -11,6 +11,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PipelineTemplatesModule } from './pipeline-templates/pipeline-templates.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { PrismaModule } from './prisma/prisma.module';
       skipIf: () => process.env.THROTTLE_ENABLED === 'false',
     }),
     PrismaModule,
+    StorageModule,
     HealthModule,
     AuthModule,
     OrganizationsModule,

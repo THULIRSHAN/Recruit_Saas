@@ -1,14 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Education, Experience, Skill, CV } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
+import { detectCvFileKind } from './cv-file-signature.util';
 import { ReplaceEducationDto } from './dto/replace-education.dto';
 import { ReplaceExperienceDto } from './dto/replace-experience.dto';
 import { ReplaceSkillsDto } from './dto/replace-skills.dto';
 import { UpdateCandidateProfileDto } from './dto/update-candidate-profile.dto';
 
+const CV_NOT_FOUND_MESSAGE = 'CV not found.';
+// docs/security.md §11's own example figure.
+const MAX_CV_SIZE_BYTES = 5 * 1024 * 1024;
+
 @Injectable()
 export class CandidatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   // REQ-CAND-001: every authenticated user is implicitly a candidate
   // (docs/open-questions.md Q11/Q19) -- `userId` comes only from the
@@ -102,6 +115,87 @@ export class CandidatesService {
     return skills.map((item) => this.toSkillDetail(item));
   }
 
+  // REQ-CAND-002: PDF/DOC/DOCX only, 5MB max, validated by content not just
+  // extension/MIME (docs/security.md §11). The first CV a candidate
+  // uploads becomes primary automatically -- REQ-APP-001 needs at least
+  // one CV to exist to apply, so an empty candidate shouldn't have to
+  // remember a separate "set primary" step just to reach that state.
+  async uploadCv(userId: string, file: Express.Multer.File | undefined) {
+    if (!file) {
+      throw new BadRequestException('A CV file is required.');
+    }
+    if (file.size > MAX_CV_SIZE_BYTES) {
+      throw new BadRequestException('CV file exceeds the 5MB size limit.');
+    }
+    if (!detectCvFileKind(file.buffer)) {
+      throw new BadRequestException('CV must be a PDF, DOC, or DOCX file.');
+    }
+
+    await this.ensureProfile(userId);
+    const { key } = await this.storageService.upload(
+      file.buffer,
+      file.originalname,
+    );
+    const existingCount = await this.prisma.cV.count({
+      where: { candidateId: userId },
+    });
+    const cv = await this.prisma.cV.create({
+      data: {
+        candidateId: userId,
+        fileKey: key,
+        fileName: file.originalname,
+        isPrimary: existingCount === 0,
+      },
+    });
+    return this.toCvDetail(cv);
+  }
+
+  async setPrimaryCv(userId: string, cvId: string) {
+    const cv = await this.requireOwnCv(userId, cvId);
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.cV.updateMany({
+        where: { candidateId: userId, id: { not: cvId } },
+        data: { isPrimary: false },
+      }),
+      this.prisma.cV.update({
+        where: { id: cv.id },
+        data: { isPrimary: true },
+      }),
+    ]);
+    return this.toCvDetail(updated);
+  }
+
+  async deleteCv(userId: string, cvId: string) {
+    const cv = await this.requireOwnCv(userId, cvId);
+    await this.prisma.cV.delete({ where: { id: cv.id } });
+    await this.storageService.delete(cv.fileKey);
+  }
+
+  async getCvSignedUrl(userId: string, cvId: string) {
+    const cv = await this.requireOwnCv(userId, cvId);
+    const signed = await this.storageService.getSignedUrl(cv.fileKey);
+    return { url: signed.url, expiresAt: signed.expiresAt };
+  }
+
+  private async requireOwnCv(userId: string, cvId: string) {
+    const cv = await this.prisma.cV.findFirst({
+      where: { id: cvId, candidateId: userId },
+    });
+    if (!cv) {
+      throw new NotFoundException(CV_NOT_FOUND_MESSAGE);
+    }
+    return cv;
+  }
+
+  private toCvDetail(cv: CV) {
+    return {
+      id: cv.id,
+      fileName: cv.fileName,
+      isPrimary: cv.isPrimary,
+      uploadedAt: cv.uploadedAt,
+    };
+  }
+
   private async ensureProfile(userId: string) {
     await this.prisma.candidateProfile.upsert({
       where: { userId },
@@ -132,12 +226,7 @@ export class CandidatesService {
         this.toExperienceDetail(item),
       ),
       skills: (profile?.skills ?? []).map((item) => this.toSkillDetail(item)),
-      cvs: (profile?.cvs ?? []).map((cv) => ({
-        id: cv.id,
-        fileName: cv.fileName,
-        isPrimary: cv.isPrimary,
-        uploadedAt: cv.uploadedAt,
-      })),
+      cvs: (profile?.cvs ?? []).map((cv) => this.toCvDetail(cv)),
     };
   }
 

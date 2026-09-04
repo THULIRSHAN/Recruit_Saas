@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { AccessTokenPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -56,5 +69,41 @@ export class CandidatesController {
     @Body() dto: ReplaceSkillsDto,
   ) {
     return this.candidatesService.replaceSkills(user.sub, dto);
+  }
+
+  @Post('me/cvs')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('candidateProfile:update')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadCv(
+    @CurrentUser() user: AccessTokenPayload,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.candidatesService.uploadCv(user.sub, file);
+  }
+
+  @Patch('me/cvs/:id/primary')
+  @RequirePermission('candidateProfile:update')
+  setPrimaryCv(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.candidatesService.setPrimaryCv(user.sub, id);
+  }
+
+  @Delete('me/cvs/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('candidateProfile:update')
+  deleteCv(@CurrentUser() user: AccessTokenPayload, @Param('id') id: string) {
+    return this.candidatesService.deleteCv(user.sub, id);
+  }
+
+  @Get('me/cvs/:id/signed-url')
+  @RequirePermission('candidateProfile:update')
+  getCvSignedUrl(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.candidatesService.getCvSignedUrl(user.sub, id);
   }
 }
