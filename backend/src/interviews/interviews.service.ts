@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApplicationsService } from '../applications/applications.service';
 import { Prisma } from '../generated/prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListMyInterviewsQueryDto } from './dto/list-my-interviews-query.dto';
 import { RescheduleInterviewDto } from './dto/reschedule-interview.dto';
@@ -75,6 +76,7 @@ export class InterviewsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly applicationsService: ApplicationsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // REQ-INT-001/002. Delegates existence/tenant-scoping to
@@ -114,6 +116,18 @@ export class InterviewsService {
       },
       include: panelInclude,
     });
+    // REQ-NOTIF-001/REQ-INT-002/Q28: "interviewers are notified" -- fires
+    // after creation commits, not inside a transaction (see Q28).
+    await Promise.all(
+      dto.interviewerIds.map((interviewerId) =>
+        this.notificationsService.notify(interviewerId, 'interview.scheduled', {
+          interviewId: interview.id,
+          applicationId,
+          scheduledAt: dto.scheduledAt,
+          mode: dto.mode,
+        }),
+      ),
+    );
     return this.toDetail(interview);
   }
 

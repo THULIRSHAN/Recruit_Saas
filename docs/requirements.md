@@ -219,7 +219,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Business rules:** A task can only belong to one checklist, and a checklist to one `Offer` (`@@unique` in the schema). Documents are always privately stored; only the uploading candidate and HR Manager at the same org may access one (see `multi-tenancy.md` §3, `security.md` §11).
 - **Priority:** P1
 
-*(REQ-POOL, REQ-UNI, REQ-SUB, REQ-PAY, REQ-NOTIF, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-NOTIF-001 — Notifications
+
+- **Actor:** System (triggered by another actor's action) → the affected user.
+- **Main flow:** Key pipeline events create an in-app `Notification` row for the affected user, readable via `GET /notifications/me` and dismissable via `PATCH /notifications/:id/read`. An "email" side exists only as a stub — logged via the server logger, not actually sent, same as `authentication.md` §3's verification/reset emails (Q12), until an email provider is chosen.
+- **Events wired for this phase (Q28 — not an exhaustive list; "key events" isn't enumerated anywhere, so scope is deliberately the intersection of what earlier tickets already flagged as needing one):** a candidate's application being rejected, whether at screening (REQ-APP-002, Q4) or the final hiring decision (REQ-HIRE-001) — notifies the candidate; an interview being scheduled (REQ-INT-002) — notifies each assigned interviewer. Q4's per-org configurability for the screening-rejection case is still deferred (no settings mechanism exists yet, per Q4's own original decision) — it fires unconditionally, matching Q4's stated default (ON).
+- **Priority:** P1
+
+*(REQ-POOL, REQ-UNI, REQ-SUB, REQ-PAY, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
 
 ---
 

@@ -5,7 +5,14 @@ import {
 } from '@nestjs/common';
 import { ApplicationsService } from './applications.service';
 import { Prisma } from '../generated/prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+function createNotificationsServiceMock() {
+  return {
+    notify: jest.fn(),
+  } as unknown as jest.Mocked<NotificationsService>;
+}
 
 function createPrismaMock() {
   const job = { findUnique: jest.fn() };
@@ -92,7 +99,10 @@ describe('ApplicationsService', () => {
       cV.findFirst.mockResolvedValue({ id: 'cv-1' });
       recruitmentStage.findFirstOrThrow.mockResolvedValue({ id: 'stage-1' });
       application.create.mockResolvedValue(baseApplication);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.create('user-1', {
         jobId: 'job-1',
@@ -120,7 +130,10 @@ describe('ApplicationsService', () => {
       cV.findFirst.mockResolvedValue({ id: 'cv-primary' });
       recruitmentStage.findFirstOrThrow.mockResolvedValue({ id: 'stage-1' });
       application.create.mockResolvedValue(baseApplication);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await service.create('user-1', { jobId: 'job-1' });
 
@@ -138,7 +151,10 @@ describe('ApplicationsService', () => {
       const { prisma, job, cV, application } = createPrismaMock();
       mockPublishedJob(job);
       cV.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1' }),
@@ -150,7 +166,10 @@ describe('ApplicationsService', () => {
       const { prisma, job, cV } = createPrismaMock();
       mockPublishedJob(job);
       cV.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1', cvId: 'not-mine' }),
@@ -160,7 +179,10 @@ describe('ApplicationsService', () => {
     it('throws NotFoundException for a nonexistent job', async () => {
       const { prisma, job } = createPrismaMock();
       job.findUnique.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1' }),
@@ -175,7 +197,10 @@ describe('ApplicationsService', () => {
         organizationId: 'org-1',
         organization: { status: 'ACTIVE' },
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1' }),
@@ -190,7 +215,10 @@ describe('ApplicationsService', () => {
         organizationId: 'org-1',
         organization: { status: 'SUSPENDED' },
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1' }),
@@ -209,7 +237,10 @@ describe('ApplicationsService', () => {
           clientVersion: 'test',
         }),
       );
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.create('user-1', { jobId: 'job-1', cvId: 'cv-1' }),
@@ -222,7 +253,10 @@ describe('ApplicationsService', () => {
       const { prisma, application } = createPrismaMock();
       application.findMany.mockResolvedValue([baseApplication]);
       application.count.mockResolvedValue(1);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.listMine('user-1', {
         page: 1,
@@ -239,7 +273,10 @@ describe('ApplicationsService', () => {
       const { prisma, application } = createPrismaMock();
       application.findMany.mockResolvedValue([]);
       application.count.mockResolvedValue(0);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await service.listMine('user-1', {
         status: 'WITHDRAWN',
@@ -259,7 +296,10 @@ describe('ApplicationsService', () => {
     it('returns an application scoped to the caller', async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(baseApplication);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.getMine('user-1', 'app-1');
 
@@ -274,7 +314,10 @@ describe('ApplicationsService', () => {
     it("throws NotFoundException for another candidate's application", async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(service.getMine('user-1', 'app-1')).rejects.toBeInstanceOf(
         NotFoundException,
@@ -290,7 +333,10 @@ describe('ApplicationsService', () => {
         ...baseApplication,
         status: 'WITHDRAWN',
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.withdraw('user-1', 'app-1');
 
@@ -309,7 +355,10 @@ describe('ApplicationsService', () => {
         ...baseApplication,
         status: 'WITHDRAWN',
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(service.withdraw('user-1', 'app-1')).rejects.toBeInstanceOf(
         ConflictException,
@@ -320,7 +369,10 @@ describe('ApplicationsService', () => {
     it("throws NotFoundException for another candidate's application, without updating", async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(service.withdraw('user-1', 'app-1')).rejects.toBeInstanceOf(
         NotFoundException,
@@ -334,7 +386,10 @@ describe('ApplicationsService', () => {
       const { prisma, application } = createPrismaMock();
       application.findMany.mockResolvedValue([baseOrgApplication]);
       application.count.mockResolvedValue(1);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.listForJob('org-1', 'job-1', {
         page: 1,
@@ -357,7 +412,10 @@ describe('ApplicationsService', () => {
       const { prisma, application } = createPrismaMock();
       application.findMany.mockResolvedValue([]);
       application.count.mockResolvedValue(0);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await service.listForJob('org-1', 'job-1', {
         status: 'REJECTED',
@@ -378,7 +436,10 @@ describe('ApplicationsService', () => {
 
     it('throws NotFoundException when there is no organization in session context', async () => {
       const { prisma } = createPrismaMock();
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.listForJob(null, 'job-1', { page: 1, pageSize: 20 }),
@@ -390,7 +451,10 @@ describe('ApplicationsService', () => {
     it('returns an application scoped to the job and organization', async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(baseOrgApplication);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.getForJob('org-1', 'job-1', 'app-1');
 
@@ -405,7 +469,10 @@ describe('ApplicationsService', () => {
     it('throws NotFoundException for an application outside this job/org', async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.getForJob('org-1', 'job-1', 'app-1'),
@@ -422,7 +489,8 @@ describe('ApplicationsService', () => {
         status: 'REJECTED',
         rejectedReason: 'Not enough experience.',
       });
-      const service = new ApplicationsService(prisma);
+      const notificationsService = createNotificationsServiceMock();
+      const service = new ApplicationsService(prisma, notificationsService);
 
       const result = await service.screen(
         'org-1',
@@ -454,6 +522,15 @@ describe('ApplicationsService', () => {
           }) as unknown,
         }),
       );
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        'cand-1',
+        'application.rejected',
+        expect.objectContaining({
+          applicationId: 'app-1',
+          reason: 'Not enough experience.',
+          source: 'screening',
+        }) as unknown,
+      );
       expect(result.status).toBe('REJECTED');
     });
 
@@ -468,7 +545,10 @@ describe('ApplicationsService', () => {
         ...baseOrgApplication,
         stage: { id: 'stage-2', name: 'Shortlisted', order: 2 },
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.screen(
         'org-1',
@@ -506,7 +586,10 @@ describe('ApplicationsService', () => {
       const { prisma, application, recruitmentStage } = createPrismaMock();
       application.findFirst.mockResolvedValue(baseOrgApplication);
       recruitmentStage.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.screen('org-1', 'actor-1', 'job-1', 'app-1', {
@@ -521,7 +604,10 @@ describe('ApplicationsService', () => {
         ...baseOrgApplication,
         status: 'WITHDRAWN',
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.screen('org-1', 'actor-1', 'job-1', 'app-1', {
@@ -533,7 +619,10 @@ describe('ApplicationsService', () => {
     it('throws NotFoundException for an application outside this job/org', async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.screen('org-1', 'actor-1', 'job-1', 'app-1', {
@@ -551,7 +640,8 @@ describe('ApplicationsService', () => {
         ...baseOrgApplication,
         status: 'HIRED',
       });
-      const service = new ApplicationsService(prisma);
+      const notificationsService = createNotificationsServiceMock();
+      const service = new ApplicationsService(prisma, notificationsService);
 
       const result = await service.decide(
         'org-1',
@@ -575,6 +665,9 @@ describe('ApplicationsService', () => {
           }) as unknown,
         }),
       );
+      // HIRE has nothing to notify about (the Offer workflow, M10, is what
+      // informs the candidate) -- see Q28.
+      expect(notificationsService.notify).not.toHaveBeenCalled();
       expect(result.status).toBe('HIRED');
     });
 
@@ -586,7 +679,8 @@ describe('ApplicationsService', () => {
         status: 'REJECTED',
         rejectedReason: 'Panel unanimous no.',
       });
-      const service = new ApplicationsService(prisma);
+      const notificationsService = createNotificationsServiceMock();
+      const service = new ApplicationsService(prisma, notificationsService);
 
       const result = await service.decide(
         'org-1',
@@ -613,6 +707,15 @@ describe('ApplicationsService', () => {
           }) as unknown,
         }),
       );
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        'cand-1',
+        'application.rejected',
+        expect.objectContaining({
+          applicationId: 'app-1',
+          reason: 'Panel unanimous no.',
+          source: 'decision',
+        }) as unknown,
+      );
       expect(result.status).toBe('REJECTED');
     });
 
@@ -622,7 +725,10 @@ describe('ApplicationsService', () => {
         ...baseOrgApplication,
         status: 'WITHDRAWN',
       });
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.decide('org-1', 'actor-1', 'job-1', 'app-1', {
@@ -634,7 +740,10 @@ describe('ApplicationsService', () => {
     it('throws NotFoundException for an application outside this job/org', async () => {
       const { prisma, application } = createPrismaMock();
       application.findFirst.mockResolvedValue(null);
-      const service = new ApplicationsService(prisma);
+      const service = new ApplicationsService(
+        prisma,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.decide('org-1', 'actor-1', 'job-1', 'app-1', {

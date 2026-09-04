@@ -10,6 +10,7 @@ import { CandidatesModule } from './candidates/candidates.module';
 import { HealthModule } from './health/health.module';
 import { InterviewsModule } from './interviews/interviews.module';
 import { JobsModule } from './jobs/jobs.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OffersModule } from './offers/offers.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -47,6 +48,7 @@ import { StorageModule } from './storage/storage.module';
     InterviewsModule,
     OffersModule,
     OnboardingModule,
+    NotificationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

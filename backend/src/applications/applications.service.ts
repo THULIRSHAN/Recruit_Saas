@@ -10,6 +10,7 @@ import {
   OrganizationStatus,
   Prisma,
 } from '../generated/prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { DecideApplicationDto } from './dto/decide-application.dto';
@@ -60,7 +61,10 @@ type ApplicationWithOrgRelations = Prisma.ApplicationGetPayload<{
 
 @Injectable()
 export class ApplicationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   // REQ-APP-001. "At most one ACTIVE application per job+candidate" is
   // enforced by a Postgres partial unique index (see the comment on
@@ -228,7 +232,7 @@ export class ApplicationsService {
     }
 
     if (dto.decision === 'REJECT') {
-      return this.prisma.$transaction(async (tx) => {
+      const detail = await this.prisma.$transaction(async (tx) => {
         const updated = await tx.application.update({
           where: { id: application.id },
           data: {
@@ -249,6 +253,20 @@ export class ApplicationsService {
         });
         return this.toOrgDetail(updated);
       });
+      // REQ-NOTIF-001/Q4/Q28: fires unconditionally, matching Q4's default
+      // (ON) -- the per-org configurability it also called for is still
+      // deferred pending a settings mechanism. Called after the
+      // transaction commits, not inside it -- see Q28.
+      await this.notificationsService.notify(
+        application.candidate.id,
+        'application.rejected',
+        {
+          applicationId: application.id,
+          reason: dto.reason ?? null,
+          source: 'screening',
+        },
+      );
+      return detail;
     }
 
     const nextStage = await this.prisma.recruitmentStage.findFirst({
@@ -305,7 +323,7 @@ export class ApplicationsService {
     }
 
     const isHire = dto.decision === 'HIRE';
-    return this.prisma.$transaction(async (tx) => {
+    const detail = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.application.update({
         where: { id: application.id },
         data: isHire
@@ -330,6 +348,22 @@ export class ApplicationsService {
       });
       return this.toOrgDetail(updated);
     });
+    // REQ-NOTIF-001/Q28: called after the transaction commits, not inside
+    // it -- see Q28. HIRE has no rejection to notify about; the offer
+    // workflow (M10) is what actually informs the candidate they got the
+    // job, via the Offer itself.
+    if (!isHire) {
+      await this.notificationsService.notify(
+        application.candidate.id,
+        'application.rejected',
+        {
+          applicationId: application.id,
+          reason: dto.reason ?? null,
+          source: 'decision',
+        },
+      );
+    }
+    return detail;
   }
 
   // dto.cvId is the "reference in the caller's own request body" case,

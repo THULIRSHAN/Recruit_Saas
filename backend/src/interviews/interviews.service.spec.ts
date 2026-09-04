@@ -7,8 +7,15 @@ import {
 } from '@nestjs/common';
 import { ApplicationsService } from '../applications/applications.service';
 import { Prisma } from '../generated/prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InterviewsService } from './interviews.service';
+
+function createNotificationsServiceMock() {
+  return {
+    notify: jest.fn(),
+  } as unknown as jest.Mocked<NotificationsService>;
+}
 
 function createPrismaMock() {
   const interview = {
@@ -77,7 +84,12 @@ describe('InterviewsService', () => {
         { userId: 'interviewer-1' },
       ]);
       interview.create.mockResolvedValue(basePanelInterview);
-      const service = new InterviewsService(prisma, applicationsService);
+      const notificationsService = createNotificationsServiceMock();
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        notificationsService,
+      );
 
       const result = await service.schedule('org-1', 'job-1', 'app-1', {
         scheduledAt: '2026-02-01T10:00:00Z',
@@ -100,6 +112,14 @@ describe('InterviewsService', () => {
           }) as unknown,
         }),
       );
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        'interviewer-1',
+        'interview.scheduled',
+        expect.objectContaining({
+          interviewId: 'interview-1',
+          applicationId: 'app-1',
+        }) as unknown,
+      );
       expect(result.panel[0].interviewer.id).toBe('interviewer-1');
     });
 
@@ -110,7 +130,11 @@ describe('InterviewsService', () => {
         id: 'app-1',
         status: 'REJECTED',
       } as never);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.schedule('org-1', 'job-1', 'app-1', {
@@ -129,7 +153,11 @@ describe('InterviewsService', () => {
         status: 'ACTIVE',
       } as never);
       userOrganizationRole.findMany.mockResolvedValue([]);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.schedule('org-1', 'job-1', 'app-1', {
@@ -146,7 +174,11 @@ describe('InterviewsService', () => {
       applicationsService.getForJob.mockRejectedValue(
         new NotFoundException('Application not found.'),
       );
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.schedule('org-1', 'job-1', 'app-1', {
@@ -176,7 +208,11 @@ describe('InterviewsService', () => {
         ...basePanelInterview,
         id: 'interview-2',
       });
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.reschedule(
         'org-1',
@@ -209,7 +245,11 @@ describe('InterviewsService', () => {
         status: 'ACTIVE',
       } as never);
       interview.findFirst.mockResolvedValue(null);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.reschedule('org-1', 'job-1', 'app-1', 'interview-1', {
@@ -231,7 +271,11 @@ describe('InterviewsService', () => {
         mode: 'VIDEO',
         panel: [],
       });
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.reschedule('org-1', 'job-1', 'app-1', 'interview-1', {
@@ -260,7 +304,11 @@ describe('InterviewsService', () => {
         },
       ]);
       interview.count.mockResolvedValue(1);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.listMine('interviewer-1', {
         page: 1,
@@ -293,7 +341,11 @@ describe('InterviewsService', () => {
         recommendation: 'YES',
         submittedAt: new Date('2026-02-01T12:00:00Z'),
       });
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.submitEvaluation(
         'interviewer-1',
@@ -324,7 +376,11 @@ describe('InterviewsService', () => {
       const { prisma, interviewPanelMember } = createPrismaMock();
       const applicationsService = createApplicationsServiceMock();
       interviewPanelMember.findFirst.mockResolvedValue(null);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.submitEvaluation('outsider-1', 'interview-1', {
@@ -342,7 +398,11 @@ describe('InterviewsService', () => {
         interviewId: 'interview-1',
         interviewerId: 'interviewer-1',
       });
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.submitEvaluation('interviewer-1', 'interview-1', {
@@ -366,7 +426,11 @@ describe('InterviewsService', () => {
           clientVersion: 'test',
         }),
       );
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.submitEvaluation('interviewer-1', 'interview-1', {
@@ -402,7 +466,11 @@ describe('InterviewsService', () => {
           },
         },
       ]);
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       const result = await service.listEvaluationsForApplication(
         'org-1',
@@ -433,7 +501,11 @@ describe('InterviewsService', () => {
       applicationsService.getForJob.mockRejectedValue(
         new NotFoundException('Application not found.'),
       );
-      const service = new InterviewsService(prisma, applicationsService);
+      const service = new InterviewsService(
+        prisma,
+        applicationsService,
+        createNotificationsServiceMock(),
+      );
 
       await expect(
         service.listEvaluationsForApplication('org-1', 'job-1', 'app-1'),
