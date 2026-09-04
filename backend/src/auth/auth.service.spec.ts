@@ -1,12 +1,16 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 
 function createPrismaMock() {
   return {
-    user: { create: jest.fn() },
-    verificationToken: { create: jest.fn() },
+    user: { create: jest.fn(), update: jest.fn() },
+    verificationToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
   } as unknown as PrismaService;
 }
 
@@ -92,6 +96,76 @@ describe('AuthService', () => {
           fullName: 'Dup User',
         }),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('marks the user verified for a valid, unused, unexpired token', async () => {
+      const prisma = createPrismaMock();
+      const token = 'raw-token';
+      const service = new AuthService(prisma);
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'vt-1',
+        userId: 'user-1',
+        purpose: 'EMAIL_VERIFICATION',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      (prisma.verificationToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+
+      await expect(service.verifyEmail(token)).resolves.toEqual({
+        verified: true,
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { emailVerified: true },
+      });
+    });
+
+    it('rejects an unknown token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue(
+        null,
+      );
+      const service = new AuthService(prisma);
+
+      await expect(service.verifyEmail('bogus')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('rejects an already-used token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'vt-1',
+        userId: 'user-1',
+        purpose: 'EMAIL_VERIFICATION',
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const service = new AuthService(prisma);
+
+      await expect(service.verifyEmail('used-token')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('rejects an expired token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'vt-1',
+        userId: 'user-1',
+        purpose: 'EMAIL_VERIFICATION',
+        usedAt: null,
+        expiresAt: new Date(Date.now() - 1),
+      });
+      const service = new AuthService(prisma);
+
+      await expect(service.verifyEmail('expired-token')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
   });
 });

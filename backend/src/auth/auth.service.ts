@@ -1,9 +1,16 @@
 import { randomBytes, createHash } from 'node:crypto';
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
+
+const INVALID_TOKEN_MESSAGE = 'Invalid or expired verification token.';
 
 @Injectable()
 export class AuthService {
@@ -80,5 +87,38 @@ export class AuthService {
       fullName: user.fullName,
       emailVerified: user.emailVerified,
     };
+  }
+
+  async verifyEmail(rawToken: string): Promise<{ verified: true }> {
+    const record = await this.prisma.verificationToken.findUnique({
+      where: { tokenHash: this.hashOpaqueToken(rawToken) },
+    });
+
+    if (
+      !record ||
+      record.purpose !== 'EMAIL_VERIFICATION' ||
+      record.usedAt ||
+      record.expiresAt < new Date()
+    ) {
+      throw new BadRequestException(INVALID_TOKEN_MESSAGE);
+    }
+
+    // Guard the claim on usedAt: null so a concurrent request replaying the
+    // same token can't also succeed (updateMany returns 0 rows if another
+    // request already claimed it first).
+    const claim = await this.prisma.verificationToken.updateMany({
+      where: { id: record.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new BadRequestException(INVALID_TOKEN_MESSAGE);
+    }
+
+    await this.prisma.user.update({
+      where: { id: record.userId },
+      data: { emailVerified: true },
+    });
+
+    return { verified: true };
   }
 }
