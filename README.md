@@ -18,8 +18,8 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 
 ## Status
 
-Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03.
-Phase 2 (Project Setup) — M1 (Project Skeleton) complete 2026-09-04; M2 (Database Foundation) next.
+Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q12).
+Phase 2/3 (Project Setup, Database, Auth) — M1 (Project Skeleton), M2 (Database Foundation), and M3 (Authentication) all complete as of 2026-09-04. M4 (RBAC + Multi-tenancy) next.
 
 ## Running Locally
 
