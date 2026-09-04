@@ -170,7 +170,10 @@ model Invitation {
   organizationId String
   email          String
   roleId         String
-  token          String    @unique
+  // Hashed, not raw -- docs/open-questions.md Q16: matches the established
+  // convention for every other single-use token (RefreshToken.tokenHash,
+  // VerificationToken.tokenHash), not database.md's literal proposal.
+  tokenHash      String    @unique
   expiresAt      DateTime
   acceptedAt     DateTime?
   createdAt      DateTime  @default(now())

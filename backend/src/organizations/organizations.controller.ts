@@ -14,6 +14,7 @@ import type { AccessTokenPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
+import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { RejectOrganizationDto } from './dto/reject-organization.dto';
@@ -50,6 +51,18 @@ export class OrganizationsController {
     @Body() dto: UpdateOrganizationDto,
   ) {
     return this.organizationsService.updateMine(user.orgId, dto);
+  }
+
+  // REQ-AUTH-008: seeded only onto COMPANY_OWNER today (HR Manager can be
+  // granted it later per the requirement's "if granted" wording).
+  @Post('me/invitations')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('user:invite')
+  inviteStaff(
+    @CurrentUser() user: AccessTokenPayload,
+    @Body() dto: CreateInvitationDto,
+  ) {
+    return this.organizationsService.inviteStaff(user.orgId, dto);
   }
 
   // Super Admin's review queue (REQ-AUTH-003). Platform-level, not

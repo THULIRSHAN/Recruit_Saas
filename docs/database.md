@@ -175,7 +175,7 @@ model Invitation {
   organizationId String
   email          String
   roleId         String
-  token          String   @unique
+  tokenHash      String   @unique // hashed, not raw -- see open-questions.md Q16
   expiresAt      DateTime
   acceptedAt     DateTime?
   createdAt      DateTime @default(now())

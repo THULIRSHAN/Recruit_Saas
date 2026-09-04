@@ -1,19 +1,30 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { OrganizationStatus, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 const ORG_NOT_FOUND_MESSAGE = 'Organization not found.';
 
+// docs/open-questions.md Q11: CANDIDATE is implicit, never assigned via
+// UserOrganizationRole -- it can't be invited into. SUPER_ADMIN is
+// platform-scoped (User.isSuperAdmin), not org-scoped -- also not
+// invitable through an org-scoped flow.
+const NON_INVITABLE_ROLE_KEYS = new Set(['CANDIDATE', 'SUPER_ADMIN']);
+
 @Injectable()
 export class OrganizationsService {
+  private readonly logger = new Logger(OrganizationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
@@ -169,6 +180,86 @@ export class OrganizationsService {
       data: { name: dto.name },
     });
     return this.toDetail(updated);
+  }
+
+  // REQ-AUTH-008: "Cannot invite into an org that is not ACTIVE"; token is a
+  // single-use opaque value, stored hashed (docs/open-questions.md Q16),
+  // 7-day expiry. Gated by user:invite at the controller.
+  async inviteStaff(orgId: string | null, dto: CreateInvitationDto) {
+    const organization = await this.requireOwnOrganization(orgId);
+    if (organization.status !== OrganizationStatus.ACTIVE) {
+      throw new ConflictException('Organization is not yet active.');
+    }
+
+    const role = await this.prisma.role.findUnique({
+      where: { key: dto.roleKey },
+    });
+    if (!role || role.isPlatformRole || NON_INVITABLE_ROLE_KEYS.has(role.key)) {
+      throw new BadRequestException(
+        `Unknown or non-invitable role: ${dto.roleKey}`,
+      );
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existingUser) {
+      const alreadyHasRole = await this.prisma.userOrganizationRole.findUnique({
+        where: {
+          userId_organizationId_roleId: {
+            userId: existingUser.id,
+            organizationId: organization.id,
+            roleId: role.id,
+          },
+        },
+      });
+      if (alreadyHasRole) {
+        throw new ConflictException(
+          'This person already holds that role at your organization.',
+        );
+      }
+    }
+
+    const pendingInvitation = await this.prisma.invitation.findFirst({
+      where: {
+        organizationId: organization.id,
+        email: dto.email,
+        roleId: role.id,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (pendingInvitation) {
+      throw new ConflictException(
+        'An invitation for this email and role is already pending.',
+      );
+    }
+
+    const rawToken = this.authService.generateOpaqueToken();
+    const ttlDays = Number(process.env.INVITATION_TTL_DAYS ?? 7);
+    const invitation = await this.prisma.invitation.create({
+      data: {
+        organizationId: organization.id,
+        email: dto.email,
+        roleId: role.id,
+        tokenHash: this.authService.hashOpaqueToken(rawToken),
+        expiresAt: new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Stubbed per docs/open-questions.md Q12 -- logged, not emailed, until
+    // the team picks an email provider.
+    this.logger.log(
+      `Invitation link for ${dto.email} to join "${organization.name}" as ${role.name}: /api/v1/invitations/${rawToken}/accept`,
+    );
+
+    return {
+      id: invitation.id,
+      email: invitation.email,
+      role: { key: role.key, name: role.name },
+      expiresAt: invitation.expiresAt,
+      createdAt: invitation.createdAt,
+    };
   }
 
   private async requireOwnOrganization(orgId: string | null) {

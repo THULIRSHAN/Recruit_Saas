@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrganizationsService } from './organizations.service';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -21,6 +25,10 @@ function createPrismaMock() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    role: { findUnique: jest.fn() },
+    user: { findUnique: jest.fn() },
+    userOrganizationRole: { findUnique: jest.fn() },
+    invitation: { findFirst: jest.fn(), create: jest.fn() },
   };
   const prisma = {
     ...topLevel,
@@ -390,6 +398,178 @@ describe('OrganizationsService', () => {
       await expect(
         service.updateMine(null, { name: 'New Name' }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('inviteStaff', () => {
+    function createAuthServiceMock() {
+      return {
+        generateOpaqueToken: jest.fn().mockReturnValue('raw-token'),
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+    }
+
+    it('creates an invitation for an ACTIVE org and a valid, invitable role', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        name: 'Acme',
+        status: 'ACTIVE',
+      });
+      topLevel.role.findUnique.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+        isPlatformRole: false,
+      });
+      topLevel.user.findUnique.mockResolvedValue(null);
+      topLevel.invitation.findFirst.mockResolvedValue(null);
+      topLevel.invitation.create.mockResolvedValue({
+        id: 'invite-1',
+        email: 'new-hire@example.com',
+        expiresAt: new Date('2026-01-08'),
+        createdAt: new Date('2026-01-01'),
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+      const result = await service.inviteStaff('org-1', {
+        email: 'new-hire@example.com',
+        roleKey: 'RECRUITER',
+      });
+
+      expect(topLevel.invitation.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: 'org-1',
+          email: 'new-hire@example.com',
+          roleId: 'role-recruiter',
+          tokenHash: 'hashed-token',
+          expiresAt: expect.any(Date) as Date,
+        },
+      });
+      expect(result).toMatchObject({
+        id: 'invite-1',
+        email: 'new-hire@example.com',
+        role: { key: 'RECRUITER', name: 'Recruiter' },
+      });
+    });
+
+    it('throws ConflictException if the organization is not ACTIVE', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        status: 'PENDING_APPROVAL',
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.inviteStaff('org-1', {
+          email: 'new-hire@example.com',
+          roleKey: 'RECRUITER',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(topLevel.invitation.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException for an unknown role key', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        status: 'ACTIVE',
+      });
+      topLevel.role.findUnique.mockResolvedValue(null);
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.inviteStaff('org-1', {
+          email: 'new-hire@example.com',
+          roleKey: 'NOT_A_REAL_ROLE',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws BadRequestException for CANDIDATE and platform roles', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        status: 'ACTIVE',
+      });
+      topLevel.role.findUnique.mockResolvedValue({
+        id: 'role-super-admin',
+        key: 'SUPER_ADMIN',
+        name: 'Super Admin',
+        isPlatformRole: true,
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.inviteStaff('org-1', {
+          email: 'new-hire@example.com',
+          roleKey: 'SUPER_ADMIN',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws ConflictException if the invited email already holds that role at the org', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        status: 'ACTIVE',
+      });
+      topLevel.role.findUnique.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+        isPlatformRole: false,
+      });
+      topLevel.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      topLevel.userOrganizationRole.findUnique.mockResolvedValue({
+        id: 'membership-1',
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.inviteStaff('org-1', {
+          email: 'existing@example.com',
+          roleKey: 'RECRUITER',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(topLevel.invitation.create).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException if a pending invitation already exists for the same email and role', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = createAuthServiceMock();
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        status: 'ACTIVE',
+      });
+      topLevel.role.findUnique.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+        isPlatformRole: false,
+      });
+      topLevel.user.findUnique.mockResolvedValue(null);
+      topLevel.invitation.findFirst.mockResolvedValue({ id: 'pending-1' });
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.inviteStaff('org-1', {
+          email: 'new-hire@example.com',
+          roleKey: 'RECRUITER',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(topLevel.invitation.create).not.toHaveBeenCalled();
     });
   });
 });

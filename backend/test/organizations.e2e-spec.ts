@@ -63,6 +63,7 @@ describe('OrganizationsController (e2e)', () => {
     await grantPermission(superAdminRole.id, 'organization:approve');
     await grantPermission(superAdminRole.id, 'organization:reject');
     await grantPermission(companyOwnerRole.id, 'organization:update');
+    await grantPermission(companyOwnerRole.id, 'user:invite');
   });
 
   // Tracked so afterAll can clean up AuditLog rows written by approve/reject
@@ -543,6 +544,134 @@ describe('OrganizationsController (e2e)', () => {
         .patch('/api/v1/organizations/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ name: 'Too Soon' })
+        .expect(409);
+    });
+  });
+
+  describe('POST /organizations/me/invitations', () => {
+    it('creates an invitation for an ACTIVE org and a valid role (happy path)', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('InviteHappy');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email, roleKey: 'RECRUITER' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        email,
+        role: { key: 'RECRUITER', name: 'Recruiter' },
+      });
+      expect(res.body).not.toHaveProperty('tokenHash');
+      expect(res.body).not.toHaveProperty('token');
+
+      const stored = await prisma.invitation.findUniqueOrThrow({
+        where: { id: res.body.id as string },
+      });
+      expect(stored.organizationId).toBe(orgId);
+      expect(stored.acceptedAt).toBeNull();
+    });
+
+    it('rejects an invalid email with 400', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('InviteBadEmail');
+      await approveOrg(orgId);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email: 'not-an-email', roleKey: 'RECRUITER' })
+        .expect(400);
+
+      await expect(
+        prisma.invitation.findFirst({ where: { organizationId: orgId } }),
+      ).resolves.toBeNull();
+    });
+
+    it('rejects an unknown role key with 400', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('InviteBadRole');
+      await approveOrg(orgId);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          email: `invitee-${Date.now()}@org-e2e.test`,
+          roleKey: 'NOT_A_REAL_ROLE',
+        })
+        .expect(400);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .send({ email: 'someone@org-e2e.test', roleKey: 'RECRUITER' })
+        .expect(401);
+    });
+
+    it('rejects a role without user:invite (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('InviteForbidden');
+      await approveOrg(orgId);
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({
+          email: `invitee-${Date.now()}@org-e2e.test`,
+          roleKey: 'RECRUITER',
+        })
+        .expect(403);
+    });
+
+    it('returns 409 if the organization is not yet ACTIVE', async () => {
+      const { token } = await registerOrgAndLoginOwner('InvitePending');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          email: `invitee-${Date.now()}@org-e2e.test`,
+          roleKey: 'RECRUITER',
+        })
+        .expect(409);
+    });
+
+    it('returns 409 for a duplicate pending invitation to the same email and role', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('InviteDup');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email, roleKey: 'RECRUITER' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email, roleKey: 'RECRUITER' })
+        .expect(409);
+    });
+
+    it('returns 409 if the invited email already holds that role at the org', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner(
+        'InviteAlreadyMember',
+      );
+      await approveOrg(orgId);
+      // Adds a Recruiter who's already a RECRUITER at this org.
+      await addRecruiterToOrgAndLogin(orgId);
+      const recruiterUser = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgId, role: { key: 'RECRUITER' } },
+        include: { user: true },
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email: recruiterUser.user.email, roleKey: 'RECRUITER' })
         .expect(409);
     });
   });

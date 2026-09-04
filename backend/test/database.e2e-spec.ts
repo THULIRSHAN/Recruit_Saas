@@ -185,10 +185,12 @@ describe('database seed (e2e)', () => {
     });
 
     it('does not create or change any Super Admin when the env vars are absent', async () => {
-      const before = await prisma.user.findMany({
-        where: { isSuperAdmin: true },
-        select: { id: true },
-      });
+      // Scoped to this test file's own fixture user, not a global
+      // isSuperAdmin:true query -- other e2e files (e.g.
+      // organizations.e2e-spec.ts) create their own Super Admin fixtures
+      // concurrently against the same shared real DB, so a global snapshot
+      // here would be a latent cross-file flake, not a guarantee.
+      const before = await prisma.user.findUniqueOrThrow({ where: { email } });
 
       // Explicitly unset (rather than just omitting from extraEnv) so this
       // doesn't accidentally inherit a real ambient SUPER_ADMIN_EMAIL.
@@ -201,13 +203,9 @@ describe('database seed (e2e)', () => {
         env,
       });
 
-      const after = await prisma.user.findMany({
-        where: { isSuperAdmin: true },
-        select: { id: true },
-      });
-      expect(after.map((u) => u.id).sort()).toEqual(
-        before.map((u) => u.id).sort(),
-      );
+      const after = await prisma.user.findUniqueOrThrow({ where: { email } });
+      expect(after.passwordHash).toBe(before.passwordHash);
+      expect(after.isSuperAdmin).toBe(true);
     });
   });
 });
