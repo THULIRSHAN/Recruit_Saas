@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -35,6 +36,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // after ThrottlerGuard so unauthenticated flooding gets rate-limited
     // before it reaches token verification.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // No-ops unless a route carries @RequirePermission(...) -- global so a
+    // developer can't forget to apply it (multi-tenancy.md §4's "mechanism,
+    // not policy" principle). Runs after JwtAuthGuard, which populates
+    // req.user that this guard depends on.
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule {}

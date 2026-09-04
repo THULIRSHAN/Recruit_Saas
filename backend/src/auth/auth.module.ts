@@ -4,6 +4,7 @@ import type { StringValue } from 'ms';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PermissionsGuard } from './guards/permissions.guard';
 
 @Module({
   controllers: [AuthController],
@@ -23,7 +24,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
       },
     }),
   ],
-  providers: [AuthService, JwtAuthGuard],
-  exports: [AuthService, JwtModule, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, PermissionsGuard],
+  exports: [AuthService, JwtModule, JwtAuthGuard, PermissionsGuard],
 })
 export class AuthModule {}
