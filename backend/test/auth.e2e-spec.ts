@@ -331,4 +331,100 @@ describe('AuthController (e2e)', () => {
       expect(res.body).toEqual({ loggedOut: true });
     });
   });
+
+  describe('POST /auth/forgot-password + POST /auth/reset-password', () => {
+    it('returns the identical response for an existing and a non-existent email', async () => {
+      const user = await createCandidateWithPassword(
+        'forgot-exists',
+        'password123',
+      );
+
+      const existsRes = await request(app.getHttpServer())
+        .post('/auth/forgot-password')
+        .send({ email: user.email })
+        .expect(200);
+
+      const missingRes = await request(app.getHttpServer())
+        .post('/auth/forgot-password')
+        .send({ email: `nobody-${Date.now()}@auth-e2e.test` })
+        .expect(200);
+
+      expect(existsRes.body).toEqual(missingRes.body);
+    });
+
+    it('resets the password with a valid token, then revokes existing sessions', async () => {
+      const user = await createCandidateWithPassword(
+        'reset-ok',
+        'oldpassword123',
+      );
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'oldpassword123' })
+        .expect(200);
+      const preResetCookie = loginRes.headers[
+        'set-cookie'
+      ] as unknown as string[];
+
+      const rawToken = authService.generateOpaqueToken();
+      await prisma.verificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: authService.hashOpaqueToken(rawToken),
+          purpose: 'PASSWORD_RESET',
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+
+      await request(app.getHttpServer())
+        .post('/auth/reset-password')
+        .send({ token: rawToken, newPassword: 'newpassword456' })
+        .expect(200);
+
+      // Old password no longer works.
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'oldpassword123' })
+        .expect(401);
+
+      // New password works.
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'newpassword456' })
+        .expect(200);
+
+      // Pre-reset session was force-revoked (old password may have been compromised).
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', preResetCookie)
+        .expect(401);
+    });
+
+    it('rejects an unknown reset token with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/reset-password')
+        .send({ token: 'not-a-real-token', newPassword: 'newpassword456' })
+        .expect(400);
+    });
+
+    it('rejects a weak new password with 400', async () => {
+      const user = await createCandidateWithPassword(
+        'reset-weak',
+        'password123',
+      );
+      const rawToken = authService.generateOpaqueToken();
+      await prisma.verificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: authService.hashOpaqueToken(rawToken),
+          purpose: 'PASSWORD_RESET',
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+
+      await request(app.getHttpServer())
+        .post('/auth/reset-password')
+        .send({ token: rawToken, newPassword: 'short' })
+        .expect(400);
+    });
+  });
 });

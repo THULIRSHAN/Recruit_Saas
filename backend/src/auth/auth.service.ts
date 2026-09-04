@@ -10,8 +10,10 @@ import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired verification token.';
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
@@ -112,13 +114,75 @@ export class AuthService {
   }
 
   async verifyEmail(rawToken: string): Promise<{ verified: true }> {
+    const record = await this.claimToken(rawToken, 'EMAIL_VERIFICATION');
+
+    await this.prisma.user.update({
+      where: { id: record.userId },
+      data: { emailVerified: true },
+    });
+
+    return { verified: true };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    // Always "succeed" from the caller's perspective (controller returns
+    // 200 either way) -- confirming an email doesn't exist is the
+    // enumeration leak this flow specifically exists to avoid.
+    if (!user) {
+      return;
+    }
+
+    const rawToken = this.generateOpaqueToken();
+    const ttlMinutes = Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 60);
+    await this.prisma.verificationToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: this.hashOpaqueToken(rawToken),
+        purpose: 'PASSWORD_RESET',
+        expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000),
+      },
+    });
+
+    // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
+    // yet, so the link is logged rather than emailed.
+    this.logger.log(
+      `Password reset link for ${user.email}: /auth/reset-password?token=${rawToken}`,
+    );
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const record = await this.claimToken(dto.token, 'PASSWORD_RESET');
+    const passwordHash = await this.hashPassword(dto.newPassword);
+
+    await this.prisma.user.update({
+      where: { id: record.userId },
+      data: { passwordHash },
+    });
+
+    // The old password may have been compromised (that's why a reset was
+    // requested) -- force re-login everywhere, per docs/authentication.md §3.
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  // Shared by verifyEmail and resetPassword: both are "find an unused,
+  // unexpired, purpose-matched token by hash, then atomically claim it."
+  private async claimToken(
+    rawToken: string,
+    purpose: 'EMAIL_VERIFICATION' | 'PASSWORD_RESET',
+  ) {
     const record = await this.prisma.verificationToken.findUnique({
       where: { tokenHash: this.hashOpaqueToken(rawToken) },
     });
 
     if (
       !record ||
-      record.purpose !== 'EMAIL_VERIFICATION' ||
+      record.purpose !== purpose ||
       record.usedAt ||
       record.expiresAt < new Date()
     ) {
@@ -136,12 +200,7 @@ export class AuthService {
       throw new BadRequestException(INVALID_TOKEN_MESSAGE);
     }
 
-    await this.prisma.user.update({
-      where: { id: record.userId },
-      data: { emailVerified: true },
-    });
-
-    return { verified: true };
+    return record;
   }
 
   async login(dto: LoginDto): Promise<TokenPair> {

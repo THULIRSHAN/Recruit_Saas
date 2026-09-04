@@ -347,4 +347,103 @@ describe('AuthService', () => {
       expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
     });
   });
+
+  describe('forgotPassword', () => {
+    it('issues a reset token when the email exists', async () => {
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'candidate@example.com',
+      });
+      const service = createService(prisma);
+
+      await service.forgotPassword({ email: 'candidate@example.com' });
+
+      expect(prisma.verificationToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          purpose: 'PASSWORD_RESET',
+        }) as object,
+      });
+    });
+
+    it('does nothing (but does not throw) when the email does not exist', async () => {
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      const service = createService(prisma);
+
+      await expect(
+        service.forgotPassword({ email: 'nobody@example.com' }),
+      ).resolves.toBeUndefined();
+      expect(prisma.verificationToken.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('updates the password and revokes all existing refresh tokens', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'vt-1',
+        userId: 'user-1',
+        purpose: 'PASSWORD_RESET',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      (prisma.verificationToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 2,
+      });
+      const service = createService(prisma);
+
+      await service.resetPassword({
+        token: 'raw-token',
+        newPassword: 'newpassword123',
+      });
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { passwordHash: expect.any(String) as string },
+      });
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) as Date },
+      });
+    });
+
+    it('rejects an unknown token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue(
+        null,
+      );
+      const service = createService(prisma);
+
+      await expect(
+        service.resetPassword({
+          token: 'bogus',
+          newPassword: 'newpassword123',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a token that is for the wrong purpose (email verification, not password reset)', async () => {
+      const prisma = createPrismaMock();
+      (prisma.verificationToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'vt-1',
+        userId: 'user-1',
+        purpose: 'EMAIL_VERIFICATION',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const service = createService(prisma);
+
+      await expect(
+        service.resetPassword({
+          token: 'wrong-purpose',
+          newPassword: 'newpassword123',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });
