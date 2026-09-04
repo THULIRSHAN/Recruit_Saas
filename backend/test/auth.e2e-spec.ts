@@ -285,4 +285,50 @@ describe('AuthController (e2e)', () => {
         .expect(401);
     });
   });
+
+  describe('POST /auth/logout', () => {
+    it('revokes the refresh token and clears the cookie', async () => {
+      const user = await createCandidateWithPassword(
+        'logout-ok',
+        'password123',
+      );
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+      const cookie = loginRes.headers['set-cookie'] as unknown as string[];
+
+      const logoutRes = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(logoutRes.body).toEqual({ loggedOut: true });
+
+      const clearedCookie = logoutRes.headers[
+        'set-cookie'
+      ] as unknown as string[];
+      expect(clearedCookie.join(';')).toMatch(/refresh_token=;/);
+
+      // The revoked token must no longer work for refresh.
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', cookie)
+        .expect(401);
+    });
+
+    it('succeeds even with no refresh cookie (idempotent)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .expect(200);
+      expect(res.body).toEqual({ loggedOut: true });
+    });
+
+    it('succeeds even with an already-invalid token', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', ['refresh_token=not-a-real-token'])
+        .expect(200);
+      expect(res.body).toEqual({ loggedOut: true });
+    });
+  });
 });

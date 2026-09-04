@@ -15,7 +15,11 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
-import { REFRESH_TOKEN_COOKIE, refreshCookieOptions } from './refresh-cookie';
+import {
+  REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE_PATH,
+  refreshCookieOptions,
+} from './refresh-cookie';
 
 @Controller('auth')
 export class AuthController {
@@ -58,5 +62,15 @@ export class AuthController {
       await this.authService.refresh(presentedToken);
     res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, refreshCookieOptions());
     return { accessToken };
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const presentedToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as
+      string | undefined;
+    await this.authService.logout(presentedToken);
+    res.clearCookie(REFRESH_TOKEN_COOKIE, { path: REFRESH_TOKEN_COOKIE_PATH });
+    return { loggedOut: true };
   }
 }

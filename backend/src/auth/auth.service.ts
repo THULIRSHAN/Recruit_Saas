@@ -187,6 +187,20 @@ export class AuthService {
     return this.issueTokenPair(record.user);
   }
 
+  // Idempotent: a missing or already-invalid token still "succeeds" (no
+  // error, no info leak) -- the end state (no valid session for that
+  // token) is the same either way, and logout shouldn't fail just because
+  // the user already logged out in another tab.
+  async logout(rawToken: string | undefined): Promise<void> {
+    if (!rawToken) {
+      return;
+    }
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash: this.hashOpaqueToken(rawToken), revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   private async issueTokenPair(user: {
     id: string;
     isSuperAdmin: boolean;

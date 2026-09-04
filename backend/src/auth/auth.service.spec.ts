@@ -319,4 +319,32 @@ describe('AuthService', () => {
       );
     });
   });
+
+  describe('logout', () => {
+    it('revokes the presented refresh token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      const service = createService(prisma);
+
+      await service.logout('some-raw-token');
+
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          tokenHash: service.hashOpaqueToken('some-raw-token'),
+          revokedAt: null,
+        },
+        data: { revokedAt: expect.any(Date) as Date },
+      });
+    });
+
+    it('is a no-op (does not throw) when no token is presented', async () => {
+      const prisma = createPrismaMock();
+      const service = createService(prisma);
+
+      await expect(service.logout(undefined)).resolves.toBeUndefined();
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+  });
 });
