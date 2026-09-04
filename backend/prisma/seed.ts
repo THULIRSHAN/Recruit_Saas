@@ -195,6 +195,39 @@ async function main() {
   );
 
   await seedSuperAdmin();
+  await seedPlans();
+}
+
+// REQ-SUB-001 (Q29): platform-defined catalog, same "not user-editable"
+// reasoning as the RBAC catalog above -- see docs/authorization.md §3's
+// comment on the schema's own "FREE | STARTER | PRO" naming.
+const PLANS = [
+  { key: 'FREE', name: 'Free', maxActiveJobs: 3, maxSeats: 5, priceCents: 0 },
+  {
+    key: 'STARTER',
+    name: 'Starter',
+    maxActiveJobs: 20,
+    maxSeats: 20,
+    priceCents: 4900,
+  },
+  {
+    key: 'PRO',
+    name: 'Pro',
+    maxActiveJobs: null,
+    maxSeats: null,
+    priceCents: 19900,
+  },
+];
+
+async function seedPlans() {
+  for (const plan of PLANS) {
+    await prisma.plan.upsert({
+      where: { key: plan.key },
+      update: plan,
+      create: plan,
+    });
+  }
+  console.log(`Seeded ${PLANS.length} plans.`);
 }
 
 // Per docs/open-questions.md Q13: no registration flow ever sets

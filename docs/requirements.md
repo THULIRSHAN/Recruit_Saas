@@ -226,7 +226,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Events wired for this phase (Q28 — not an exhaustive list; "key events" isn't enumerated anywhere, so scope is deliberately the intersection of what earlier tickets already flagged as needing one):** a candidate's application being rejected, whether at screening (REQ-APP-002, Q4) or the final hiring decision (REQ-HIRE-001) — notifies the candidate; an interview being scheduled (REQ-INT-002) — notifies each assigned interviewer. Q4's per-org configurability for the screening-rejection case is still deferred (no settings mechanism exists yet, per Q4's own original decision) — it fires unconditionally, matching Q4's stated default (ON).
 - **Priority:** P1
 
-*(REQ-POOL, REQ-UNI, REQ-SUB, REQ-PAY, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-SUB-001/REQ-PAY-001 — Subscriptions & Payments
+
+- **Actor:** Company Owner.
+- **Main flow:** Company Owner selects a `Plan` (`FREE`/`STARTER`/`PRO`, each with `maxActiveJobs`/`maxSeats`/`priceCents`) for their organization via `GET /plans` (public catalog, no auth — a pricing page) and `POST /organizations/me/subscription` (`subscription:manage`). Selecting a paid plan is expected to run a real Stripe Checkout session in test mode; selecting/switching plans upserts the org's single `Subscription` row and records a `Payment` row for any non-zero amount. `GET /organizations/me/subscription` reads the org's current plan and payment history.
+- **Business rules:** One `Subscription` per organization (switching plans updates it in place, it doesn't create a new one) — payment history is preserved per-transaction on `Payment`, independent of the current plan. Enforcing `Plan.maxActiveJobs`/`maxSeats` against actual usage (blocking a job post or staff invite once a limit is hit) is explicitly **out of scope for this ticket** (Q29) — this phase only implements plan *selection*, not limit *enforcement*.
+- **Priority:** P1
+
+*(REQ-POOL, REQ-UNI, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
 
 ---
 
