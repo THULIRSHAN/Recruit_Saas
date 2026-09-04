@@ -1,9 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Job } from '../generated/prisma/client';
+import { Job, JobStatus } from '../generated/prisma/client';
 import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApplyPipelineTemplateDto } from './dto/apply-pipeline-template.dto';
@@ -146,6 +147,78 @@ export class JobsService {
       .map((stage) => stage.name);
 
     return this.setStages(jobId, stageNames);
+  }
+
+  // REQ-JOB-001: DRAFT -> PUBLISHED only, and only once a recruitment
+  // stage exists (CLAUDE.md's business-rules quick reference: "Job
+  // publishing requires at least one recruitment pipeline stage to
+  // exist"). Published jobs appear in public search (REQ-JOB-005, a
+  // separate ticket).
+  async publish(orgId: string | null, id: string) {
+    const organizationId = this.requireOrgId(orgId);
+    const job = await this.requireJob(id, organizationId);
+
+    if (job.status !== JobStatus.DRAFT) {
+      throw new ConflictException(
+        `Job is already ${job.status.toLowerCase()}.`,
+      );
+    }
+    const stageCount = await this.prisma.recruitmentStage.count({
+      where: { jobId: id },
+    });
+    if (stageCount === 0) {
+      throw new ConflictException(
+        'Job must have at least one recruitment stage before it can be published.',
+      );
+    }
+
+    const updated = await this.prisma.job.update({
+      where: { id },
+      data: { status: JobStatus.PUBLISHED, publishedAt: new Date() },
+    });
+    return this.toDetail(updated);
+  }
+
+  // REQ-JOB-001: PUBLISHED -> CLOSED only. "Closed jobs stop accepting
+  // applications but remain visible for record-keeping; removed from
+  // public search results" (the latter enforced by REQ-JOB-005's own
+  // PUBLISHED-only filter, a separate ticket).
+  async close(orgId: string | null, id: string) {
+    const organizationId = this.requireOrgId(orgId);
+    const job = await this.requireJob(id, organizationId);
+
+    if (job.status !== JobStatus.PUBLISHED) {
+      throw new ConflictException(
+        `Job is not published (current status: ${job.status}).`,
+      );
+    }
+
+    const updated = await this.prisma.job.update({
+      where: { id },
+      data: { status: JobStatus.CLOSED, closedAt: new Date() },
+    });
+    return this.toDetail(updated);
+  }
+
+  // REQ-JOB-001: ARCHIVED is "a terminal soft-delete state" -- reachable
+  // from any non-ARCHIVED status, matching docs/api.md §1's DELETE
+  // convention ("jobs... never hard-deleted; archived... instead").
+  // Gated by job:update at the controller (no dedicated job:archive
+  // permission is seeded -- same established gap as docs/open-questions.md
+  // Q14/Q17: reuse the closest existing permission rather than invent one
+  // for a single action).
+  async archive(orgId: string | null, id: string) {
+    const organizationId = this.requireOrgId(orgId);
+    const job = await this.requireJob(id, organizationId);
+
+    if (job.status === JobStatus.ARCHIVED) {
+      throw new ConflictException('Job is already archived.');
+    }
+
+    await this.prisma.job.update({
+      where: { id },
+      data: { status: JobStatus.ARCHIVED },
+    });
   }
 
   private async setStages(jobId: string, stageNames: string[]) {

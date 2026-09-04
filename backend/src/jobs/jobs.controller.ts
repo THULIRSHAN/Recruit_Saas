@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -89,5 +90,30 @@ export class JobsController {
     @Body() dto: ApplyPipelineTemplateDto,
   ) {
     return this.jobsService.applyTemplate(user.orgId, id, dto);
+  }
+
+  @Post(':id/publish')
+  @RequirePermission('job:publish')
+  @RequireTenant({ model: 'job' })
+  publish(@CurrentUser() user: AccessTokenPayload, @Param('id') id: string) {
+    return this.jobsService.publish(user.orgId, id);
+  }
+
+  @Post(':id/close')
+  @RequirePermission('job:close')
+  @RequireTenant({ model: 'job' })
+  close(@CurrentUser() user: AccessTokenPayload, @Param('id') id: string) {
+    return this.jobsService.close(user.orgId, id);
+  }
+
+  // docs/api.md §1: DELETE = soft-delete for jobs (archived, never hard-
+  // deleted). No dedicated job:archive permission is seeded -- gated by
+  // job:update per the established Q14/Q17 precedent.
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('job:update')
+  @RequireTenant({ model: 'job' })
+  archive(@CurrentUser() user: AccessTokenPayload, @Param('id') id: string) {
+    return this.jobsService.archive(user.orgId, id);
   }
 }

@@ -73,6 +73,8 @@ describe('JobsController (e2e)', () => {
     await grantPermission(recruiterRole.id, 'job:create');
     await grantPermission(recruiterRole.id, 'job:read');
     await grantPermission(recruiterRole.id, 'job:update');
+    await grantPermission(recruiterRole.id, 'job:publish');
+    await grantPermission(recruiterRole.id, 'job:close');
     await grantPermission(recruiterRole.id, 'pipeline:manage');
   });
 
@@ -619,6 +621,216 @@ describe('JobsController (e2e)', () => {
         .set('Authorization', `Bearer ${tokenB}`)
         .send({ pipelineTemplateId: templateId })
         .expect(404);
+    });
+  });
+
+  describe('POST /jobs/:id/publish', () => {
+    it('publishes a DRAFT job that has at least one stage (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('PublishHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied'] });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(201);
+
+      expect(res.body).toMatchObject({ status: 'PUBLISHED' });
+      expect(res.body.publishedAt).not.toBeNull();
+    });
+
+    it('returns 409 if the job has no recruitment stages', async () => {
+      const orgId = await registerAndApproveOrg('PublishNoStages');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it('returns 409 if the job is already published', async () => {
+      const orgId = await registerAndApproveOrg('PublishTwice');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied'] });
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const orgId = await registerAndApproveOrg('Publish401');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .expect(401);
+    });
+
+    it('rejects a role without job:publish with 403', async () => {
+      const orgId = await registerAndApproveOrg('PublishForbidden');
+      const recruiterToken = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(recruiterToken);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it('returns 404 for a cross-tenant job', async () => {
+      const orgAId = await registerAndApproveOrg('PublishCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createJob(tokenA);
+
+      const orgBId = await registerAndApproveOrg('PublishCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .expect(404);
+    });
+  });
+
+  describe('POST /jobs/:id/close', () => {
+    async function createPublishedJob(token: string) {
+      const jobId = await createJob(token);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied'] });
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/publish`)
+        .set('Authorization', `Bearer ${token}`);
+      return jobId;
+    }
+
+    it('closes a PUBLISHED job (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('CloseHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(token);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/close`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(201);
+
+      expect(res.body).toMatchObject({ status: 'CLOSED' });
+      expect(res.body.closedAt).not.toBeNull();
+    });
+
+    it('returns 409 if the job is not published (e.g. still DRAFT)', async () => {
+      const orgId = await registerAndApproveOrg('CloseNotPublished');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/close`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it('rejects a role without job:close with 403', async () => {
+      const orgId = await registerAndApproveOrg('CloseForbidden');
+      const recruiterToken = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createPublishedJob(recruiterToken);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/close`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it('returns 404 for a cross-tenant job', async () => {
+      const orgAId = await registerAndApproveOrg('CloseCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createPublishedJob(tokenA);
+
+      const orgBId = await registerAndApproveOrg('CloseCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/close`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .expect(404);
+    });
+  });
+
+  describe('DELETE /jobs/:id', () => {
+    it('archives a job from any non-ARCHIVED status (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('ArchiveHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(204);
+
+      const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+      expect(job.status).toBe('ARCHIVED');
+    });
+
+    it('returns 409 if the job is already archived', async () => {
+      const orgId = await registerAndApproveOrg('ArchiveTwice');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it('rejects a role without job:update with 403', async () => {
+      const orgId = await registerAndApproveOrg('ArchiveForbidden');
+      const recruiterToken = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(recruiterToken);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it('returns 404 for a cross-tenant job, without archiving it', async () => {
+      const orgAId = await registerAndApproveOrg('ArchiveCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createJob(tokenA);
+
+      const orgBId = await registerAndApproveOrg('ArchiveCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/jobs/${jobId}`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .expect(404);
+
+      const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+      expect(job.status).not.toBe('ARCHIVED');
     });
   });
 });

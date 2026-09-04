@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JobsService } from './jobs.service';
 import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +19,7 @@ function createPrismaMock() {
     findMany: jest.fn(),
     deleteMany: jest.fn(),
     createMany: jest.fn(),
+    count: jest.fn(),
   };
   const txMock = { recruitmentStage };
   const prisma = {
@@ -393,6 +398,169 @@ describe('JobsService', () => {
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(pipelineTemplatesService.getOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('publish', () => {
+    it('publishes a DRAFT job that has at least one stage', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.count.mockResolvedValue(1);
+      job.update.mockResolvedValue({
+        ...baseJob,
+        status: 'PUBLISHED',
+        publishedAt: new Date('2026-02-01'),
+      });
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.publish('org-1', 'job-1');
+
+      expect(job.update).toHaveBeenCalledWith({
+        where: { id: 'job-1' },
+        data: { status: 'PUBLISHED', publishedAt: expect.any(Date) as Date },
+      });
+      expect(result).toMatchObject({ status: 'PUBLISHED' });
+    });
+
+    it('throws ConflictException if the job has no recruitment stages', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.count.mockResolvedValue(0);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.publish('org-1', 'job-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(job.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException if the job is not DRAFT', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue({ ...baseJob, status: 'PUBLISHED' });
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.publish('org-1', 'job-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(job.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.publish('org-1', 'job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('close', () => {
+    it('closes a PUBLISHED job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue({ ...baseJob, status: 'PUBLISHED' });
+      job.update.mockResolvedValue({
+        ...baseJob,
+        status: 'CLOSED',
+        closedAt: new Date('2026-03-01'),
+      });
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.close('org-1', 'job-1');
+
+      expect(job.update).toHaveBeenCalledWith({
+        where: { id: 'job-1' },
+        data: { status: 'CLOSED', closedAt: expect.any(Date) as Date },
+      });
+      expect(result).toMatchObject({ status: 'CLOSED' });
+    });
+
+    it('throws ConflictException if the job is not PUBLISHED', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.close('org-1', 'job-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(job.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.close('org-1', 'job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('archive', () => {
+    it('archives a job from any non-ARCHIVED status', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await service.archive('org-1', 'job-1');
+
+      expect(job.update).toHaveBeenCalledWith({
+        where: { id: 'job-1' },
+        data: { status: 'ARCHIVED' },
+      });
+    });
+
+    it('throws ConflictException if the job is already archived', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue({ ...baseJob, status: 'ARCHIVED' });
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.archive('org-1', 'job-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(job.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.archive('org-1', 'job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 });
