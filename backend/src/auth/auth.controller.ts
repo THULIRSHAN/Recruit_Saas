@@ -13,6 +13,8 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { Public } from './decorators/public.decorator';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -23,6 +25,7 @@ import {
   REFRESH_TOKEN_COOKIE_PATH,
   refreshCookieOptions,
 } from './refresh-cookie';
+import type { AccessTokenPayload } from './auth.service';
 
 @Controller('auth')
 export class AuthController {
@@ -33,6 +36,7 @@ export class AuthController {
   // risk. /auth/refresh deliberately keeps the global default: it's used by
   // every legitimate active session on every token expiry, not just at
   // attack-prone entry points.
+  @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -40,11 +44,13 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
+  @Public()
   @Get('verify-email')
   verifyEmail(@Query() query: VerifyEmailDto) {
     return this.authService.verifyEmail(query.token);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -57,6 +63,9 @@ export class AuthController {
     return { accessToken };
   }
 
+  // Public with respect to the access token guard -- authenticated by the
+  // refresh cookie instead, checked internally.
+  @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
@@ -74,6 +83,10 @@ export class AuthController {
     return { accessToken };
   }
 
+  // Public with respect to the access token guard, same reasoning as
+  // refresh -- an expired/already-invalid access token shouldn't block
+  // logging out.
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -84,6 +97,7 @@ export class AuthController {
     return { loggedOut: true };
   }
 
+  @Public()
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -96,10 +110,19 @@ export class AuthController {
     };
   }
 
+  @Public()
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto);
     return { message: 'Password has been reset.' };
+  }
+
+  // First protected endpoint -- proves JwtAuthGuard actually enforces
+  // authentication end-to-end (M4.1). Returns the token payload as-is;
+  // deliberately minimal since there's no user-profile module yet.
+  @Get('me')
+  me(@CurrentUser() user: AccessTokenPayload) {
+    return user;
   }
 }

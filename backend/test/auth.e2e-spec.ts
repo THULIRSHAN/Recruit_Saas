@@ -456,4 +456,37 @@ describe('AuthController (e2e)', () => {
       }
     });
   });
+
+  describe('GET /auth/me', () => {
+    it('rejects a request with no access token', async () => {
+      await request(app.getHttpServer()).get('/auth/me').expect(401);
+    });
+
+    it('rejects a garbage token', async () => {
+      await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', 'Bearer not-a-real-jwt')
+        .expect(401);
+    });
+
+    it('returns the decoded token payload for a valid access token', async () => {
+      const user = await createCandidateWithPassword('me-ok', 'password123');
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        sub: user.id,
+        orgId: null,
+        roles: [],
+        isSuperAdmin: false,
+      });
+    });
+  });
 });
