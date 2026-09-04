@@ -18,10 +18,11 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 
 ## Status
 
-Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q18).
+Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q21).
 Phase 2/3/4 (Project Setup, Database, Auth, RBAC) — M1 (Project Skeleton), M2 (Database Foundation), M3 (Authentication), and M4 (RBAC + Multi-tenancy) all complete as of 2026-09-04.
 Phase 5 (Organizations) — M5 complete as of 2026-09-04: organization self-registration + Super Admin approve/reject/list (REQ-AUTH-002/003), self-service org settings (`GET`/`PATCH /organizations/me`), and staff invitations, both the create side (`POST /organizations/me/invitations`) and accept side (`POST /invitations/:token/accept`, REQ-AUTH-008). First real consumer of M4's PermissionsGuard (including its `reVerify` DB re-check for sensitive actions).
-Phase 6 (Jobs) — M6 complete as of 2026-09-04: org-scoped Job CRUD (first real consumer of M4's TenantGuard), reusable pipeline templates + per-job recruitment stage management (including applying a template to a job), the publish/close/archive lifecycle (REQ-JOB-001, enforcing "≥1 stage to publish"), and public job search + job details (REQ-JOB-005) — the one deliberately cross-tenant endpoint class in the system. M7 (Candidate Profile & Applications) next.
+Phase 6 (Jobs) — M6 complete as of 2026-09-04: org-scoped Job CRUD (first real consumer of M4's TenantGuard), reusable pipeline templates + per-job recruitment stage management (including applying a template to a job), the publish/close/archive lifecycle (REQ-JOB-001, enforcing "≥1 stage to publish"), and public job search + job details (REQ-JOB-005) — the one deliberately cross-tenant endpoint class in the system.
+Phase 7 (Candidate Profile & Applications) — in progress as of 2026-09-04: candidate profile CRUD (M7.1), CV upload behind a swappable `StorageService` abstraction with signed URLs (M7.2, ADR-004/Q20), and job application submission — create/list/view/withdraw, scoped to the caller, with the DB-level "one active application per job+candidate" rule enforced via a partial unique index (M7.3). Org-staff-facing application screening/shortlisting (M7.4) next.
 
 ## Running Locally
 
