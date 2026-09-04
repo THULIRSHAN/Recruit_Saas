@@ -18,6 +18,10 @@ const RECRUITER_PERMISSIONS = [
   'job:update',
   'job:publish',
   'job:close',
+  // Not in docs/authorization.md §3's table -- see docs/open-questions.md
+  // Q17 (a Recruiter who can create/update/publish/close a job obviously
+  // needs to be able to view it too).
+  'job:read',
   'application:read',
   'application:screen',
   'application:shortlist',

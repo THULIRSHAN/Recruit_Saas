@@ -193,6 +193,8 @@ model Job {
   department      String?
   location        String?
   employmentType  String?
+  salaryMin       Int? // REQ-JOB-001 -- see open-questions.md Q17
+  salaryMax       Int?
   status          JobStatus @default(DRAFT)
   createdById     String
   createdAt       DateTime  @default(now())

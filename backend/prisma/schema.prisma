@@ -191,6 +191,13 @@ model Job {
   department     String?
   location       String?
   employmentType String?
+  // REQ-JOB-001 calls for an optional salary range on creation, but
+  // database.md's Job model proposal omitted it entirely -- see
+  // docs/open-questions.md Q17. Whole-unit amounts in the org's (implicit,
+  // undecided) currency -- no currency field exists yet anywhere in the
+  // schema.
+  salaryMin      Int?
+  salaryMax      Int?
   status         JobStatus @default(DRAFT)
   createdById    String
   createdAt      DateTime  @default(now())

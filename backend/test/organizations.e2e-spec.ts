@@ -291,8 +291,6 @@ describe('OrganizationsController (e2e)', () => {
         })
         .expect(201);
 
-      const orgCountBefore = await prisma.organization.count();
-
       const res = await request(app.getHttpServer())
         .post('/api/v1/organizations')
         .send({
@@ -305,8 +303,14 @@ describe('OrganizationsController (e2e)', () => {
 
       expect(res.body.message).not.toMatch(/email/i);
       // The whole transaction rolled back -- no orphaned Organization row
-      // from the failed second attempt.
-      await expect(prisma.organization.count()).resolves.toBe(orgCountBefore);
+      // from the failed second attempt. Scoped to this test's own fixture
+      // email, not a global count -- other e2e files (e.g. jobs.e2e-spec.ts)
+      // create their own organizations concurrently against the same
+      // shared real DB, so a global snapshot here would be a latent
+      // cross-file flake, not a guarantee.
+      await expect(
+        prisma.userOrganizationRole.count({ where: { user: { email } } }),
+      ).resolves.toBe(1);
     });
 
     it('does not require authentication', async () => {

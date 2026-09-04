@@ -1,0 +1,200 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { JobsService } from './jobs.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+function createPrismaMock() {
+  const job = {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
+  };
+  return { prisma: { job } as unknown as PrismaService, job };
+}
+
+const baseJob = {
+  id: 'job-1',
+  organizationId: 'org-1',
+  title: 'Software Engineer',
+  description: 'Build things.',
+  department: null,
+  location: null,
+  employmentType: null,
+  salaryMin: null,
+  salaryMax: null,
+  status: 'DRAFT',
+  createdById: 'user-1',
+  createdAt: new Date('2026-01-01'),
+  updatedAt: new Date('2026-01-01'),
+  publishedAt: null,
+  closedAt: null,
+};
+
+describe('JobsService', () => {
+  describe('create', () => {
+    it('creates a DRAFT job scoped to the caller org, ignoring any client-supplied org', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.create.mockResolvedValue(baseJob);
+      const service = new JobsService(prisma);
+
+      const result = await service.create('org-1', 'user-1', {
+        title: 'Software Engineer',
+        description: 'Build things.',
+      });
+
+      expect(job.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: 'org-1',
+          title: 'Software Engineer',
+          description: 'Build things.',
+          department: undefined,
+          location: undefined,
+          employmentType: undefined,
+          salaryMin: undefined,
+          salaryMax: undefined,
+          createdById: 'user-1',
+        },
+      });
+      expect(result).toMatchObject({ id: 'job-1', status: 'DRAFT' });
+    });
+
+    it('throws BadRequestException when salaryMin > salaryMax', async () => {
+      const { prisma, job } = createPrismaMock();
+      const service = new JobsService(prisma);
+
+      await expect(
+        service.create('org-1', 'user-1', {
+          title: 'Software Engineer',
+          description: 'Build things.',
+          salaryMin: 100_000,
+          salaryMax: 50_000,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(job.create).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the caller has no org in their token', async () => {
+      const { prisma, job } = createPrismaMock();
+      const service = new JobsService(prisma);
+
+      await expect(
+        service.create(null, 'user-1', {
+          title: 'Software Engineer',
+          description: 'Build things.',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(job.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('list', () => {
+    it('filters by the caller org and optional status, applying pagination', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findMany.mockResolvedValue([baseJob]);
+      job.count.mockResolvedValue(1);
+      const service = new JobsService(prisma);
+
+      const result = await service.list('org-1', {
+        status: 'DRAFT',
+        page: 2,
+        pageSize: 10,
+      });
+
+      expect(job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'org-1', status: 'DRAFT' },
+          skip: 10,
+          take: 10,
+        }),
+      );
+      expect(result.meta).toEqual({ page: 2, pageSize: 10, total: 1 });
+      expect(result.data).toHaveLength(1);
+    });
+
+    it('omits the status filter when none is given', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findMany.mockResolvedValue([]);
+      job.count.mockResolvedValue(0);
+      const service = new JobsService(prisma);
+
+      await service.list('org-1', { page: 1, pageSize: 20 });
+
+      expect(job.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { organizationId: 'org-1' } }),
+      );
+    });
+  });
+
+  describe('getOne', () => {
+    it('returns a job scoped to the caller org', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      const service = new JobsService(prisma);
+
+      const result = await service.getOne('org-1', 'job-1');
+
+      expect(job.findFirst).toHaveBeenCalledWith({
+        where: { id: 'job-1', organizationId: 'org-1' },
+      });
+      expect(result).toMatchObject({ id: 'job-1' });
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(prisma);
+
+      await expect(service.getOne('org-1', 'job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('update', () => {
+    it('updates a job scoped to the caller org, in any status', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      job.update.mockResolvedValue({ ...baseJob, title: 'Senior Engineer' });
+      const service = new JobsService(prisma);
+
+      const result = await service.update('org-1', 'job-1', {
+        title: 'Senior Engineer',
+      });
+
+      expect(job.findFirst).toHaveBeenCalledWith({
+        where: { id: 'job-1', organizationId: 'org-1' },
+      });
+      expect(job.update).toHaveBeenCalledWith({
+        where: { id: 'job-1' },
+        data: { title: 'Senior Engineer' },
+      });
+      expect(result).toMatchObject({ title: 'Senior Engineer' });
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job, without updating', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(prisma);
+
+      await expect(
+        service.update('org-1', 'job-1', { title: 'Senior Engineer' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(job.update).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when salaryMin > salaryMax', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      const service = new JobsService(prisma);
+
+      await expect(
+        service.update('org-1', 'job-1', {
+          salaryMin: 100_000,
+          salaryMax: 50_000,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(job.update).not.toHaveBeenCalled();
+    });
+  });
+});

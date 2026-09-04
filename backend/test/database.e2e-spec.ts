@@ -19,6 +19,9 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'job:update',
     'job:publish',
     'job:close',
+    // docs/open-questions.md Q17 -- not in authorization.md's original
+    // table, added as a documented fix.
+    'job:read',
     'application:read',
     'application:screen',
     'application:shortlist',
