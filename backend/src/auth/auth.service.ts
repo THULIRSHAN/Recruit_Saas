@@ -72,11 +72,32 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    const { user } = await this.createUserAccount(dto);
+
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      emailVerified: user.emailVerified,
+    };
+  }
+
+  // Shared with OrganizationsService's registration flow (REQ-AUTH-002),
+  // which needs this to run inside the SAME transaction as creating the
+  // Organization + owner UserOrganizationRole ("in one transaction" is an
+  // explicit business rule, not just a nice-to-have) -- accepts an optional
+  // transaction client instead of always using `this.prisma` directly.
+  // Centralizes password hashing + duplicate-email handling + verification-
+  // token issuance in one place rather than duplicating it per caller.
+  async createUserAccount(
+    dto: { email: string; password: string; fullName: string },
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
     const passwordHash = await this.hashPassword(dto.password);
 
     let user;
     try {
-      user = await this.prisma.user.create({
+      user = await client.user.create({
         data: { email: dto.email, passwordHash, fullName: dto.fullName },
       });
     } catch (error) {
@@ -94,12 +115,12 @@ export class AuthService {
       throw error;
     }
 
-    const rawToken = this.generateOpaqueToken();
+    const rawVerificationToken = this.generateOpaqueToken();
     const ttlHours = Number(process.env.EMAIL_VERIFICATION_TTL_HOURS ?? 24);
-    await this.prisma.verificationToken.create({
+    await client.verificationToken.create({
       data: {
         userId: user.id,
-        tokenHash: this.hashOpaqueToken(rawToken),
+        tokenHash: this.hashOpaqueToken(rawVerificationToken),
         purpose: 'EMAIL_VERIFICATION',
         expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000),
       },
@@ -108,15 +129,10 @@ export class AuthService {
     // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
     // yet, so the link is logged rather than emailed.
     this.logger.log(
-      `Verification link for ${user.email}: /api/v1/auth/verify-email?token=${rawToken}`,
+      `Verification link for ${user.email}: /api/v1/auth/verify-email?token=${rawVerificationToken}`,
     );
 
-    return {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      emailVerified: user.emailVerified,
-    };
+    return { user, rawVerificationToken };
   }
 
   async verifyEmail(rawToken: string): Promise<{ verified: true }> {

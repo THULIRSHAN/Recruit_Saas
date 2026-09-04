@@ -118,6 +118,35 @@ describe('AuthService', () => {
     });
   });
 
+  describe('createUserAccount', () => {
+    it('uses the provided transaction client instead of the default PrismaService, when one is passed', async () => {
+      const prisma = createPrismaMock();
+      const service = createService(prisma);
+      const txClient = {
+        user: {
+          create: jest
+            .fn()
+            .mockResolvedValue({ id: 'user-1', email: 'owner@example.com' }),
+        },
+        verificationToken: { create: jest.fn() },
+      } as unknown as Parameters<typeof service.createUserAccount>[1];
+
+      await service.createUserAccount(
+        {
+          email: 'owner@example.com',
+          password: 'password123',
+          fullName: 'Org Owner',
+        },
+        txClient,
+      );
+
+      expect(
+        (txClient as unknown as { user: { create: jest.Mock } }).user.create,
+      ).toHaveBeenCalledTimes(1);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('verifyEmail', () => {
     it('marks the user verified for a valid, unused, unexpired token', async () => {
       const prisma = createPrismaMock();
