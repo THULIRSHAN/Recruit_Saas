@@ -19,12 +19,13 @@ describe('AppModule (e2e)', () => {
     await app.close();
   });
 
-  it('/health (GET) returns 200 with an ok status', () => {
+  it('/health (GET) returns 200 with an ok status and a reachable database', () => {
     return request(app.getHttpServer())
       .get('/health')
       .expect(200)
       .expect((res) => {
         expect(res.body.status).toBe('ok');
+        expect(res.body.database).toBe('ok');
         expect(res.body).toHaveProperty('timestamp');
         expect(res.body).toHaveProperty('uptimeSeconds');
       });

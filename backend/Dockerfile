@@ -11,6 +11,10 @@ RUN npm ci
 
 FROM deps AS build
 COPY backend backend
+# The generated Prisma client (backend/src/generated/prisma) is gitignored
+# build output, not checked in -- it must be (re)generated here so the image
+# doesn't depend on it already existing on the host.
+RUN npm run prisma:generate --workspace=backend
 RUN npm run build --workspace=backend
 
 FROM node:24-alpine AS runtime
