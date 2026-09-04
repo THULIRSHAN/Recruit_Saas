@@ -66,6 +66,12 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      # M2.4's database e2e test queries real tables (Role/Permission), so
+      # the CI Postgres service container needs an actual migrated + seeded
+      # schema first -- nothing else in this job applies it.
+      - name: Apply migrations
+        run: npm run prisma:migrate:deploy --workspace=backend
+
       - name: E2E tests
         run: npm run test:e2e
 

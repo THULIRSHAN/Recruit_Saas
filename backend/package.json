@@ -9,6 +9,7 @@
     "build": "nest build",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prestart": "npm run prisma:generate",
     "start": "nest start",
     "prestart:dev": "npm run prisma:generate",
