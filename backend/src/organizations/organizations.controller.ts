@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { RejectOrganizationDto } from './dto/reject-organization.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { OrganizationsService } from './organizations.service';
 
 @Controller('organizations')
@@ -30,6 +32,24 @@ export class OrganizationsController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   register(@Body() dto: RegisterOrganizationDto) {
     return this.organizationsService.registerOrganization(dto);
+  }
+
+  // No permission gate -- any org-scoped role needs to see this, including
+  // the "pending approval" screen (docs/open-questions.md Q15). `orgId`
+  // comes only from the caller's own token, so there's no :id to tamper
+  // with and thus no cross-tenant surface for this endpoint.
+  @Get('me')
+  getMine(@CurrentUser() user: AccessTokenPayload) {
+    return this.organizationsService.getMine(user.orgId);
+  }
+
+  @Patch('me')
+  @RequirePermission('organization:update')
+  updateMine(
+    @CurrentUser() user: AccessTokenPayload,
+    @Body() dto: UpdateOrganizationDto,
+  ) {
+    return this.organizationsService.updateMine(user.orgId, dto);
   }
 
   // Super Admin's review queue (REQ-AUTH-003). Platform-level, not

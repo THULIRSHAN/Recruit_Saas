@@ -31,33 +31,38 @@ describe('OrganizationsController (e2e)', () => {
 
     // This file's own fixture -- see auth.e2e-spec.ts for why (Jest doesn't
     // guarantee cross-file seed ordering against the shared real DB).
-    await prisma.role.upsert({
+    const companyOwnerRole = await prisma.role.upsert({
       where: { key: 'COMPANY_OWNER' },
       update: {},
       create: { key: 'COMPANY_OWNER', name: 'Company Owner' },
+    });
+    await prisma.role.upsert({
+      where: { key: 'RECRUITER' },
+      update: {},
+      create: { key: 'RECRUITER', name: 'Recruiter' },
     });
     const superAdminRole = await prisma.role.upsert({
       where: { key: 'SUPER_ADMIN' },
       update: {},
       create: { key: 'SUPER_ADMIN', name: 'Super Admin', isPlatformRole: true },
     });
-    for (const key of ['organization:approve', 'organization:reject']) {
+
+    async function grantPermission(roleId: string, key: string) {
       const permission = await prisma.permission.upsert({
         where: { key },
         update: {},
         create: { key },
       });
       await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: superAdminRole.id,
-            permissionId: permission.id,
-          },
-        },
+        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
         update: {},
-        create: { roleId: superAdminRole.id, permissionId: permission.id },
+        create: { roleId, permissionId: permission.id },
       });
     }
+
+    await grantPermission(superAdminRole.id, 'organization:approve');
+    await grantPermission(superAdminRole.id, 'organization:reject');
+    await grantPermission(companyOwnerRole.id, 'organization:update');
   });
 
   // Tracked so afterAll can clean up AuditLog rows written by approve/reject
@@ -125,6 +130,60 @@ describe('OrganizationsController (e2e)', () => {
     });
     orgIdsToClean.push(org.id);
     return org;
+  }
+
+  async function registerOrgAndLoginOwner(namePrefix: string) {
+    const email = `${namePrefix}-owner-${Date.now()}@org-e2e.test`;
+    const regRes = await request(app.getHttpServer())
+      .post('/api/v1/organizations')
+      .send({
+        organizationName: `Org E2E Test ${namePrefix} ${Date.now()}`,
+        ownerFullName: 'Org Owner',
+        ownerEmail: email,
+        ownerPassword: 'password123',
+      });
+    orgIdsToClean.push(regRes.body.organization.id as string);
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return {
+      orgId: regRes.body.organization.id as string,
+      token: loginRes.body.accessToken as string,
+    };
+  }
+
+  async function approveOrg(orgId: string) {
+    const adminToken = await createSuperAdminAndLogin();
+    await request(app.getHttpServer())
+      .post(`/api/v1/organizations/${orgId}/approve`)
+      .set('Authorization', `Bearer ${adminToken}`);
+  }
+
+  async function addRecruiterToOrgAndLogin(orgId: string) {
+    const recruiterRole = await prisma.role.findUniqueOrThrow({
+      where: { key: 'RECRUITER' },
+    });
+    const email = `recruiter-${Date.now()}-${Math.random().toString(36).slice(2)}@org-e2e.test`;
+    const passwordHash = await authService.hashPassword('password123');
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName: 'Recruiter Person',
+        emailVerified: true,
+      },
+    });
+    await prisma.userOrganizationRole.create({
+      data: {
+        userId: user.id,
+        organizationId: orgId,
+        roleId: recruiterRole.id,
+      },
+    });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
   }
 
   describe('POST /organizations', () => {
@@ -385,6 +444,106 @@ describe('OrganizationsController (e2e)', () => {
         .get('/api/v1/organizations')
         .set('Authorization', `Bearer ${token}`)
         .expect(403);
+    });
+  });
+
+  describe('GET /organizations/me', () => {
+    it("returns the caller's own organization, including while still PENDING_APPROVAL", async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('GetMinePending');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ id: orgId, status: 'PENDING_APPROVAL' });
+    });
+
+    it('is visible to any org-scoped role, not just the Company Owner', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('GetMineRecruiter');
+      await approveOrg(orgId);
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ id: orgId, status: 'ACTIVE' });
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me')
+        .expect(401);
+    });
+
+    it('returns 404 when the caller has no organization in their token', async () => {
+      const token = await createNonAdminAndLogin();
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+  });
+
+  describe('PATCH /organizations/me', () => {
+    it("updates the caller's own ACTIVE organization's name (happy path)", async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('PatchMine');
+      await approveOrg(orgId);
+
+      const res = await request(app.getHttpServer())
+        .patch('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Org E2E Test Renamed' })
+        .expect(200);
+
+      expect(res.body).toMatchObject({ name: 'Org E2E Test Renamed' });
+      await expect(
+        prisma.organization.findUniqueOrThrow({ where: { id: orgId } }),
+      ).resolves.toMatchObject({ name: 'Org E2E Test Renamed' });
+    });
+
+    it('rejects an empty name with 400', async () => {
+      const { orgId, token } =
+        await registerOrgAndLoginOwner('PatchMineInvalid');
+      await approveOrg(orgId);
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: '' })
+        .expect(400);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/v1/organizations/me')
+        .send({ name: 'Nope' })
+        .expect(401);
+    });
+
+    it('rejects a role without organization:update (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('PatchMineForbidden');
+      await approveOrg(orgId);
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ name: 'Hijacked Name' })
+        .expect(403);
+    });
+
+    it('returns 409 if the organization is not yet ACTIVE', async () => {
+      const { token } = await registerOrgAndLoginOwner('PatchMinePending');
+
+      await request(app.getHttpServer())
+        .patch('/api/v1/organizations/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Too Soon' })
+        .expect(409);
     });
   });
 });

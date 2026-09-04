@@ -15,7 +15,12 @@ function createPrismaMock() {
     auditLog: { create: jest.fn() },
   };
   const topLevel = {
-    organization: { findMany: jest.fn(), count: jest.fn() },
+    organization: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
   };
   const prisma = {
     ...topLevel,
@@ -287,6 +292,104 @@ describe('OrganizationsService', () => {
       expect(topLevel.organization.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: {}, skip: 20, take: 10 }),
       );
+    });
+  });
+
+  describe('getMine', () => {
+    it("returns the org identified by the caller's own orgId", async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = {} as unknown as AuthService;
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        name: 'Acme',
+        status: 'PENDING_APPROVAL',
+        createdAt: new Date('2026-01-01'),
+        approvedAt: null,
+        rejectedReason: null,
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+      const result = await service.getMine('org-1');
+
+      expect(topLevel.organization.findUnique).toHaveBeenCalledWith({
+        where: { id: 'org-1' },
+      });
+      expect(result).toMatchObject({ id: 'org-1', status: 'PENDING_APPROVAL' });
+    });
+
+    it('throws NotFoundException when the caller has no org in their token', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = {} as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(service.getMine(null)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(topLevel.organization.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateMine', () => {
+    it("updates the name of the caller's own ACTIVE organization", async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = {} as unknown as AuthService;
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        name: 'Old Name',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01'),
+        approvedAt: new Date('2026-01-02'),
+        rejectedReason: null,
+      });
+      topLevel.organization.update.mockResolvedValue({
+        id: 'org-1',
+        name: 'New Name',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01'),
+        approvedAt: new Date('2026-01-02'),
+        rejectedReason: null,
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+      const result = await service.updateMine('org-1', { name: 'New Name' });
+
+      expect(topLevel.organization.update).toHaveBeenCalledWith({
+        where: { id: 'org-1' },
+        data: { name: 'New Name' },
+      });
+      expect(result).toMatchObject({ id: 'org-1', name: 'New Name' });
+    });
+
+    it('throws ConflictException if the organization is not yet ACTIVE', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      const authService = {} as unknown as AuthService;
+      topLevel.organization.findUnique.mockResolvedValue({
+        id: 'org-1',
+        name: 'Old Name',
+        status: 'PENDING_APPROVAL',
+        createdAt: new Date('2026-01-01'),
+        approvedAt: null,
+        rejectedReason: null,
+      });
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.updateMine('org-1', { name: 'New Name' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(topLevel.organization.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the caller has no org in their token', async () => {
+      const { prisma } = createPrismaMock();
+      const authService = {} as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.updateMine(null, { name: 'New Name' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

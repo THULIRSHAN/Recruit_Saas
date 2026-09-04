@@ -8,6 +8,7 @@ import { OrganizationStatus, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 const ORG_NOT_FOUND_MESSAGE = 'Organization not found.';
 
@@ -144,6 +145,45 @@ export class OrganizationsService {
     };
   }
 
+  // docs/open-questions.md Q15: any org-scoped role can view its own org
+  // (not gated by organization:update) -- every staff member needs to see
+  // the "pending approval" screen while status is PENDING_APPROVAL, not
+  // just the Company Owner. `orgId` comes only from the caller's own access
+  // token, never a client-supplied id, so there is no cross-tenant surface
+  // to guard against here at all.
+  async getMine(orgId: string | null) {
+    return this.toDetail(await this.requireOwnOrganization(orgId));
+  }
+
+  // Gated by organization:update at the controller (Company Owner only).
+  // Q15: writes require status === ACTIVE, mirroring REQ-AUTH-002's "not
+  // usable... until Super Admin approves."
+  async updateMine(orgId: string | null, dto: UpdateOrganizationDto) {
+    const organization = await this.requireOwnOrganization(orgId);
+    if (organization.status !== OrganizationStatus.ACTIVE) {
+      throw new ConflictException('Organization is not yet active.');
+    }
+
+    const updated = await this.prisma.organization.update({
+      where: { id: organization.id },
+      data: { name: dto.name },
+    });
+    return this.toDetail(updated);
+  }
+
+  private async requireOwnOrganization(orgId: string | null) {
+    if (!orgId) {
+      throw new NotFoundException(ORG_NOT_FOUND_MESSAGE);
+    }
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+    });
+    if (!organization) {
+      throw new NotFoundException(ORG_NOT_FOUND_MESSAGE);
+    }
+    return organization;
+  }
+
   private async requirePendingOrganization(
     tx: Prisma.TransactionClient,
     id: string,
@@ -169,6 +209,24 @@ export class OrganizationsService {
       id: organization.id,
       name: organization.name,
       status: organization.status,
+    };
+  }
+
+  private toDetail(organization: {
+    id: string;
+    name: string;
+    status: OrganizationStatus;
+    createdAt: Date;
+    approvedAt: Date | null;
+    rejectedReason: string | null;
+  }) {
+    return {
+      id: organization.id,
+      name: organization.name,
+      status: organization.status,
+      createdAt: organization.createdAt,
+      approvedAt: organization.approvedAt,
+      rejectedReason: organization.rejectedReason,
     };
   }
 }
