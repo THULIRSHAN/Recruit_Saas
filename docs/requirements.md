@@ -233,7 +233,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Business rules:** One `Subscription` per organization (switching plans updates it in place, it doesn't create a new one) — payment history is preserved per-transaction on `Payment`, independent of the current plan. Enforcing `Plan.maxActiveJobs`/`maxSeats` against actual usage (blocking a job post or staff invite once a limit is hit) is explicitly **out of scope for this ticket** (Q29) — this phase only implements plan *selection*, not limit *enforcement*.
 - **Priority:** P1
 
-*(REQ-POOL, REQ-UNI, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-POOL-001 — Talent Pools
+
+- **Actor:** Recruiter.
+- **Main flow:** Recruiter creates a named `TalentPool` for their organization, then tags candidates into it (`TalentPoolCandidate`) for later reference (e.g., "strong but not right for this role"). A candidate can only be tagged if they've actually applied to a job at this org (validated via `Application`) — there is no separate candidate directory to browse independently of applications, so a Recruiter can only pool candidates they've genuinely encountered, not arbitrary platform users.
+- **Business rules:** A candidate can be tagged into any number of pools, and a pool can hold any number of candidates (`@@id([talentPoolId, candidateId])` in the schema prevents only exact duplicates). No candidate-facing surface exists — a candidate is never notified of being pooled, per the schema (`TalentPoolCandidate` has no relation to `Notification`) and REQ-POOL-001's actor being Recruiter-only.
+- **Priority:** P2
+
+*(REQ-UNI, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
 
 ---
 

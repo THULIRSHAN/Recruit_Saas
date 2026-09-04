@@ -44,6 +44,10 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     // table, added as a documented fix (REQ-EVAL-002 names Recruiter as
     // an actor for the aggregate evaluation view).
     'evaluation:read',
+    // Q30 (docs/open-questions.md): a new permission (not a missing grant
+    // of an existing one) -- no key in the original catalog covered
+    // talent pools at all.
+    'talentPool:manage',
   ],
   HIRING_MANAGER: [
     'application:read',
@@ -89,6 +93,7 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'interview:read',
     'evaluation:read',
     'evaluation:submit',
+    'talentPool:manage',
     'offer:create',
     'offer:read',
     'offer:send',

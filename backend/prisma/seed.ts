@@ -32,6 +32,10 @@ const RECRUITER_PERMISSIONS = [
   // docs/open-questions.md Q24. REQ-EVAL-002 names Recruiter as an actor
   // for the aggregate evaluation view, alongside Hiring Manager.
   'evaluation:read',
+  // New permission (not a missing grant of an existing one) -- see
+  // docs/open-questions.md Q30. No key in the original catalog covered
+  // talent pools at all.
+  'talentPool:manage',
 ];
 
 const HIRING_MANAGER_PERMISSIONS = [

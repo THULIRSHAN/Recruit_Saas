@@ -18,6 +18,7 @@ import { PipelineTemplatesModule } from './pipeline-templates/pipeline-templates
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { TalentPoolsModule } from './talent-pools/talent-pools.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
     OnboardingModule,
     NotificationsModule,
     SubscriptionsModule,
+    TalentPoolsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
