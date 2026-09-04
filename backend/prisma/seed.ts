@@ -45,6 +45,10 @@ const INTERVIEWER_PERMISSIONS = ['interview:read', 'evaluation:submit'];
 
 const HR_MANAGER_PERMISSIONS = [
   'offer:create',
+  // Not in docs/authorization.md §3's original table -- see
+  // docs/open-questions.md Q26 (an HR Manager who creates an offer
+  // obviously needs to view it too).
+  'offer:read',
   'offer:send',
   'document:request',
   'document:read',
@@ -59,6 +63,10 @@ const CANDIDATE_PERMISSIONS = [
   'application:read',
   'application:withdraw',
   'candidateProfile:update',
+  // Not in docs/authorization.md §3's original table -- see
+  // docs/open-questions.md Q26 (a candidate needs to view an offer before
+  // REQ-OFFER-002's accept/decline action makes sense).
+  'offer:read',
   'offer:respond',
   'document:upload',
 ];

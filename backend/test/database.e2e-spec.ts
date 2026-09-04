@@ -15,6 +15,10 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'application:read',
     'application:withdraw',
     'candidateProfile:update',
+    // Q26 (docs/open-questions.md): not in authorization.md §3's original
+    // table, but a candidate needs to view an offer before REQ-OFFER-002's
+    // accept/decline action makes sense.
+    'offer:read',
     'offer:respond',
     'document:upload',
   ],
@@ -46,6 +50,9 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
   INTERVIEWER: ['interview:read', 'evaluation:submit'],
   HR_MANAGER: [
     'offer:create',
+    // Q26 (docs/open-questions.md): not in authorization.md §3's original
+    // table, added as a documented fix.
+    'offer:read',
     'offer:send',
     'document:request',
     'document:read',
@@ -79,6 +86,7 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'evaluation:read',
     'evaluation:submit',
     'offer:create',
+    'offer:read',
     'offer:send',
     'document:request',
     'document:read',
