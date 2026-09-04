@@ -18,9 +18,10 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 
 ## Status
 
-Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q16).
+Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q18).
 Phase 2/3/4 (Project Setup, Database, Auth, RBAC) — M1 (Project Skeleton), M2 (Database Foundation), M3 (Authentication), and M4 (RBAC + Multi-tenancy) all complete as of 2026-09-04.
-Phase 5 (Organizations) — M5 complete as of 2026-09-04: organization self-registration + Super Admin approve/reject/list (REQ-AUTH-002/003), self-service org settings (`GET`/`PATCH /organizations/me`), and staff invitations, both the create side (`POST /organizations/me/invitations`) and accept side (`POST /invitations/:token/accept`, REQ-AUTH-008). First real consumer of M4's PermissionsGuard (including its `reVerify` DB re-check for sensitive actions) — `TenantGuard`'s first consumer remains M6 (Job model). M6 (Jobs) next.
+Phase 5 (Organizations) — M5 complete as of 2026-09-04: organization self-registration + Super Admin approve/reject/list (REQ-AUTH-002/003), self-service org settings (`GET`/`PATCH /organizations/me`), and staff invitations, both the create side (`POST /organizations/me/invitations`) and accept side (`POST /invitations/:token/accept`, REQ-AUTH-008). First real consumer of M4's PermissionsGuard (including its `reVerify` DB re-check for sensitive actions).
+Phase 6 (Jobs) — M6 complete as of 2026-09-04: org-scoped Job CRUD (first real consumer of M4's TenantGuard), reusable pipeline templates + per-job recruitment stage management (including applying a template to a job), the publish/close/archive lifecycle (REQ-JOB-001, enforcing "≥1 stage to publish"), and public job search + job details (REQ-JOB-005) — the one deliberately cross-tenant endpoint class in the system. M7 (Candidate Profile & Applications) next.
 
 ## Running Locally
 
