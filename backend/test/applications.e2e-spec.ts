@@ -48,6 +48,19 @@ describe('ApplicationsController (e2e)', () => {
       update: {},
       create: { key: 'CANDIDATE', name: 'Candidate' },
     });
+    const hiringManagerRole = await prisma.role.upsert({
+      where: { key: 'HIRING_MANAGER' },
+      update: {},
+      create: { key: 'HIRING_MANAGER', name: 'Hiring Manager' },
+    });
+    // No application:* permissions -- used for "correct org, wrong
+    // permission" 403 tests (docs/testing.md §2 case 4), same role jobs.e2e-
+    // spec.ts uses for the equivalent job:* case.
+    await prisma.role.upsert({
+      where: { key: 'INTERVIEWER' },
+      update: {},
+      create: { key: 'INTERVIEWER', name: 'Interviewer' },
+    });
     const superAdminRole = await prisma.role.upsert({
       where: { key: 'SUPER_ADMIN' },
       update: {},
@@ -72,10 +85,15 @@ describe('ApplicationsController (e2e)', () => {
     await grantPermission(recruiterRole.id, 'job:read');
     await grantPermission(recruiterRole.id, 'job:publish');
     await grantPermission(recruiterRole.id, 'pipeline:manage');
+    await grantPermission(recruiterRole.id, 'application:read');
+    await grantPermission(recruiterRole.id, 'application:screen');
     await grantPermission(candidateRole.id, 'application:create');
     await grantPermission(candidateRole.id, 'application:read');
     await grantPermission(candidateRole.id, 'application:withdraw');
     await grantPermission(candidateRole.id, 'candidateProfile:update');
+    // Deliberately no application:screen -- REQ-APP-002's stated actor is
+    // Recruiter only.
+    await grantPermission(hiringManagerRole.id, 'application:read');
   });
 
   afterAll(async () => {
@@ -141,16 +159,20 @@ describe('ApplicationsController (e2e)', () => {
   }
 
   async function addRecruiterAndLogin(orgId: string) {
+    return addStaffAndLogin(orgId, 'RECRUITER');
+  }
+
+  async function addStaffAndLogin(orgId: string, roleKey: string) {
     const role = await prisma.role.findUniqueOrThrow({
-      where: { key: 'RECRUITER' },
+      where: { key: roleKey },
     });
-    const email = `recruiter-${Date.now()}-${Math.random().toString(36).slice(2)}@applications-e2e.test`;
+    const email = `staff-${Date.now()}-${Math.random().toString(36).slice(2)}@applications-e2e.test`;
     const passwordHash = await authService.hashPassword('password123');
     const user = await prisma.user.create({
       data: {
         email,
         passwordHash,
-        fullName: 'Recruiter Person',
+        fullName: 'Staff Person',
         emailVerified: true,
       },
     });
@@ -202,6 +224,14 @@ describe('ApplicationsController (e2e)', () => {
       .post('/api/v1/candidates/me/cvs')
       .set('Authorization', `Bearer ${candidateToken}`)
       .attach('file', Buffer.from('%PDF-1.4\n%mock cv'), 'resume.pdf');
+    return res.body.id as string;
+  }
+
+  async function applyToJob(candidateToken: string, jobId: string) {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/applications')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .send({ jobId });
     return res.body.id as string;
   }
 
@@ -468,6 +498,222 @@ describe('ApplicationsController (e2e)', () => {
         where: { id: appRes.body.id as string },
       });
       expect(check.status).toBe('ACTIVE');
+    });
+  });
+
+  describe('GET /jobs/:jobId/applications', () => {
+    it('lists applications scoped to the job (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('JobListHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('JobListHappy');
+      await uploadCv(candidateToken);
+      await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({
+        status: 'ACTIVE',
+        candidate: {
+          email: expect.stringContaining('@applications-e2e.test') as string,
+        },
+      });
+    });
+
+    it('is readable by a Hiring Manager (application:read, not just Recruiter)', async () => {
+      const orgId = await registerAndApproveOrg('JobListHm');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .expect(200);
+    });
+
+    it('returns 404 for a job belonging to another organization', async () => {
+      const orgIdA = await registerAndApproveOrg('JobListCrossA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgIdA);
+      const jobId = await createPublishedJob(recruiterTokenA);
+      const orgIdB = await registerAndApproveOrg('JobListCrossB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgIdB);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications`)
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(404);
+    });
+
+    it('rejects a role without application:read (e.g. Interviewer) with 403', async () => {
+      const orgId = await registerAndApproveOrg('JobListForbidden');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const orgId = await registerAndApproveOrg('JobListUnauth');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications`)
+        .expect(401);
+    });
+  });
+
+  describe('GET /jobs/:jobId/applications/:id', () => {
+    it('returns 404 for an application belonging to a different job', async () => {
+      const orgId = await registerAndApproveOrg('JobGetWrongJob');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const otherJobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('JobGetWrongJob');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${otherJobId}/applications/${appId}`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(404);
+    });
+  });
+
+  describe('POST /jobs/:jobId/applications/:id/screen', () => {
+    it("PASS advances the application to the job's next pipeline stage", async () => {
+      const orgId = await registerAndApproveOrg('ScreenPass');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken); // stages: Applied, Interview
+      const candidateToken = await registerCandidateAndLogin('ScreenPass');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'PASS' })
+        .expect(201);
+
+      expect(res.body.stage.name).toBe('Interview');
+      expect(res.body.status).toBe('ACTIVE');
+    });
+
+    it("returns 422 when PASSing from the job's last stage", async () => {
+      const orgId = await registerAndApproveOrg('ScreenPassLast');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('ScreenPassLast');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'PASS' });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'PASS' })
+        .expect(422);
+    });
+
+    it('REJECT sets a terminal status with the given reason', async () => {
+      const orgId = await registerAndApproveOrg('ScreenReject');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('ScreenReject');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'REJECT', reason: 'Not enough experience.' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        status: 'REJECTED',
+        rejectedReason: 'Not enough experience.',
+      });
+    });
+
+    it('returns 409 when screening an already-rejected application', async () => {
+      const orgId = await registerAndApproveOrg('ScreenTwice');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('ScreenTwice');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'REJECT' });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'REJECT' })
+        .expect(409);
+    });
+
+    it('returns 404 for a cross-tenant application id', async () => {
+      const orgIdA = await registerAndApproveOrg('ScreenCrossA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgIdA);
+      const jobIdA = await createPublishedJob(recruiterTokenA);
+      const candidateToken = await registerCandidateAndLogin('ScreenCrossA');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobIdA);
+
+      const orgIdB = await registerAndApproveOrg('ScreenCrossB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgIdB);
+      const jobIdB = await createPublishedJob(recruiterTokenB);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobIdB}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .send({ decision: 'REJECT' })
+        .expect(404);
+    });
+
+    it('rejects a Hiring Manager (application:read only, not application:screen) with 403', async () => {
+      const orgId = await registerAndApproveOrg('ScreenHmForbidden');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken =
+        await registerCandidateAndLogin('ScreenHmForbidden');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .send({ decision: 'REJECT' })
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const orgId = await registerAndApproveOrg('ScreenUnauth');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('ScreenUnauth');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .send({ decision: 'REJECT' })
+        .expect(401);
     });
   });
 });

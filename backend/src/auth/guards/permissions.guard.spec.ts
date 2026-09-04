@@ -6,7 +6,9 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PermissionsGuard } from './permissions.guard';
 import type { AccessTokenPayload } from '../auth.service';
+import { REQUIRE_PERMISSION_KEY } from '../decorators/require-permission.decorator';
 import type { RequiredPermission } from '../decorators/require-permission.decorator';
+import { REQUIRE_TENANT_KEY } from '../decorators/require-tenant.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function createContext(user?: AccessTokenPayload) {
@@ -18,9 +20,22 @@ function createContext(user?: AccessTokenPayload) {
   } as unknown as ExecutionContext;
 }
 
-function createReflectorMock(required: RequiredPermission | undefined) {
+// hasTenantScope simulates a route also carrying @RequireTenant() -- the
+// two decorators read independent metadata keys off the same handler.
+function createReflectorMock(
+  required: RequiredPermission | undefined,
+  hasTenantScope = false,
+) {
   return {
-    getAllAndOverride: jest.fn().mockReturnValue(required),
+    getAllAndOverride: jest.fn((key: string) =>
+      key === REQUIRE_PERMISSION_KEY
+        ? required
+        : key === REQUIRE_TENANT_KEY
+          ? hasTenantScope
+            ? { model: 'job' }
+            : undefined
+          : undefined,
+    ),
   } as unknown as Reflector;
 }
 
@@ -122,6 +137,65 @@ describe('PermissionsGuard', () => {
       where: {
         role: { key: { in: ['RECRUITER', 'CANDIDATE'] } },
         permission: { key: 'application:create' },
+      },
+    });
+  });
+
+  it('excludes the implicit CANDIDATE grant on a route also carrying @RequireTenant() (docs/open-questions.md Q23)', async () => {
+    // application:read is granted to both CANDIDATE (self-scoped) and
+    // RECRUITER (org-scoped, docs/authorization.md §3) -- found as a real
+    // bug in M7.4 (JobApplicationsController): without this exclusion, an
+    // Interviewer with no application:read grant of their own could still
+    // pass this check purely via the blanket CANDIDATE fallback, on a route
+    // that is unambiguously org-resource-scoped (it carries @RequireTenant).
+    const reflector = createReflectorMock(
+      { permission: 'application:read' },
+      true,
+    );
+    const prisma = createPrismaMock();
+    (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
+    const guard = new PermissionsGuard(reflector, prisma);
+    const user: AccessTokenPayload = {
+      sub: 'user-1',
+      orgId: 'org-1',
+      roles: ['INTERVIEWER'],
+      isSuperAdmin: false,
+    };
+
+    await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+      where: {
+        role: { key: { in: ['INTERVIEWER'] } },
+        permission: { key: 'application:read' },
+      },
+    });
+  });
+
+  it('still allows an org role that actually grants the permission on a @RequireTenant() route', async () => {
+    const reflector = createReflectorMock(
+      { permission: 'application:read' },
+      true,
+    );
+    const prisma = createPrismaMock();
+    (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
+      roleId: 'r1',
+      permissionId: 'p1',
+    });
+    const guard = new PermissionsGuard(reflector, prisma);
+    const user: AccessTokenPayload = {
+      sub: 'user-1',
+      orgId: 'org-1',
+      roles: ['RECRUITER'],
+      isSuperAdmin: false,
+    };
+
+    await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
+    expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+      where: {
+        role: { key: { in: ['RECRUITER'] } },
+        permission: { key: 'application:read' },
       },
     });
   });

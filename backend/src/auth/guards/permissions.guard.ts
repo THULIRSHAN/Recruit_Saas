@@ -13,6 +13,7 @@ import {
   REQUIRE_PERMISSION_KEY,
   type RequiredPermission,
 } from '../decorators/require-permission.decorator';
+import { REQUIRE_TENANT_KEY } from '../decorators/require-tenant.decorator';
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
 
@@ -63,9 +64,29 @@ export class PermissionsGuard implements CanActivate {
     // own profile/application) is still a required second layer via an
     // ownership check in the service, same pattern as Interviewer's
     // ownership-scoped permissions (docs/authorization.md §3).
-    const roleKeys = isSuperAdmin
-      ? [...roles, 'SUPER_ADMIN', 'CANDIDATE']
-      : [...roles, 'CANDIDATE'];
+    //
+    // EXCEPT on a route also carrying @RequireTenant(): that decorator only
+    // ever appears on an org-resource-scoped route (docs/multi-tenancy.md
+    // §3), never a candidate-self one (see ApplicationsController's
+    // /applications/* routes, which have no @RequireTenant()). Some
+    // permission keys are shared between a Candidate's self-scoped grant
+    // and org staff's org-scoped grant (e.g. application:read -- Q22) --
+    // without this exclusion, the blanket CANDIDATE grant would let ANY
+    // authenticated staff member of the org satisfy that check regardless
+    // of their actual role's permissions, defeating the point of
+    // @RequirePermission() on that route (found while implementing M7.4's
+    // org-staff application list/screen endpoints).
+    const hasTenantScope = Boolean(
+      this.reflector.getAllAndOverride<unknown>(REQUIRE_TENANT_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]),
+    );
+    const roleKeys = [
+      ...roles,
+      ...(isSuperAdmin ? ['SUPER_ADMIN'] : []),
+      ...(hasTenantScope ? [] : ['CANDIDATE']),
+    ];
 
     const grant = await this.prisma.rolePermission.findFirst({
       where: {
