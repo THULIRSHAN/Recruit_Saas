@@ -4,6 +4,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { RequireTenant } from '../auth/decorators/require-tenant.decorator';
 import { ApplicationsService } from './applications.service';
+import { DecideApplicationDto } from './dto/decide-application.dto';
 import { ListJobApplicationsQueryDto } from './dto/list-job-applications-query.dto';
 import { ScreenApplicationDto } from './dto/screen-application.dto';
 
@@ -48,6 +49,24 @@ export class JobApplicationsController {
     @Body() dto: ScreenApplicationDto,
   ) {
     return this.applicationsService.screen(
+      user.orgId,
+      user.sub,
+      jobId,
+      id,
+      dto,
+    );
+  }
+
+  @Post(':id/decide')
+  @RequirePermission('application:decide')
+  @RequireTenant({ model: 'job', param: 'jobId' })
+  decide(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('jobId') jobId: string,
+    @Param('id') id: string,
+    @Body() dto: DecideApplicationDto,
+  ) {
+    return this.applicationsService.decide(
       user.orgId,
       user.sub,
       jobId,

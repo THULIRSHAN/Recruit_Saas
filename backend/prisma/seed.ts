@@ -28,6 +28,10 @@ const RECRUITER_PERMISSIONS = [
   'pipeline:manage',
   'interview:schedule',
   'interview:read',
+  // Not in docs/authorization.md §3's original table -- see
+  // docs/open-questions.md Q24. REQ-EVAL-002 names Recruiter as an actor
+  // for the aggregate evaluation view, alongside Hiring Manager.
+  'evaluation:read',
 ];
 
 const HIRING_MANAGER_PERMISSIONS = [

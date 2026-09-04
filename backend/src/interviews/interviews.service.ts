@@ -1,5 +1,7 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -10,9 +12,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ListMyInterviewsQueryDto } from './dto/list-my-interviews-query.dto';
 import { RescheduleInterviewDto } from './dto/reschedule-interview.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
+import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 
 const INTERVIEW_NOT_FOUND_MESSAGE = 'Interview not found.';
 const NO_ORG_CONTEXT_MESSAGE = 'No organization in session context.';
+// docs/testing.md §2 case 8's literal example: "Interviewer (not assigned
+// to this application's interview) tries to submit an evaluation | 403" --
+// 403, not the more common 404-for-ownership-mismatch pattern used
+// elsewhere, because the interview itself is visible/known to exist to
+// any interviewer at the org; it's specifically *this* interviewer's lack
+// of an assignment that's being rejected.
+const NOT_ASSIGNED_MESSAGE =
+  'You are not assigned to this interview as a panel member.';
 
 const panelInclude = {
   panel: {
@@ -42,6 +53,21 @@ const myInterviewInclude = {
 
 type InterviewWithApplication = Prisma.InterviewGetPayload<{
   include: typeof myInterviewInclude;
+}>;
+
+// REQ-EVAL-002: Recruiter/Hiring Manager's aggregate view needs the
+// interviewer's identity and which interview each score belongs to.
+const evaluationInclude = {
+  panelMember: {
+    select: {
+      interviewId: true,
+      interviewer: { select: { id: true, fullName: true, email: true } },
+    },
+  },
+} satisfies Prisma.EvaluationInclude;
+
+type EvaluationWithPanelMember = Prisma.EvaluationGetPayload<{
+  include: typeof evaluationInclude;
 }>;
 
 @Injectable()
@@ -166,6 +192,94 @@ export class InterviewsService {
     };
   }
 
+  // REQ-EVAL-001/Q5/Q25: exactly one evaluation per panel assignment (the
+  // DB's @unique([panelMemberId]) is the authoritative enforcement, caught
+  // here as P2002, same race-avoidance reasoning as M7.3's duplicate-
+  // application check) -- and per Q25, deliberately no companion "read my
+  // evaluations" method exists on this service, so a submitted evaluation
+  // is never readable by any interviewer, including its own author.
+  async submitEvaluation(
+    interviewerId: string,
+    interviewId: string,
+    dto: SubmitEvaluationDto,
+  ) {
+    const panelMember = await this.prisma.interviewPanelMember.findFirst({
+      where: { interviewId, interviewerId },
+    });
+    if (!panelMember) {
+      throw new ForbiddenException(NOT_ASSIGNED_MESSAGE);
+    }
+    this.validateScores(dto.scores);
+
+    try {
+      const evaluation = await this.prisma.evaluation.create({
+        data: {
+          panelMemberId: panelMember.id,
+          scores: dto.scores,
+          comment: dto.comment,
+          recommendation: dto.recommendation,
+        },
+      });
+      return {
+        id: evaluation.id,
+        scores: evaluation.scores,
+        comment: evaluation.comment,
+        recommendation: evaluation.recommendation,
+        submittedAt: evaluation.submittedAt,
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'You have already submitted an evaluation for this interview.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  // REQ-EVAL-002 (Q24: added evaluation:read to Recruiter's permissions to
+  // match this requirement's stated actors). Delegates existence/tenant
+  // scoping to ApplicationsService.getForJob(), same pattern as
+  // schedule()/reschedule().
+  async listEvaluationsForApplication(
+    orgId: string | null,
+    jobId: string,
+    applicationId: string,
+  ) {
+    const organizationId = this.requireOrgId(orgId);
+    await this.applicationsService.getForJob(
+      organizationId,
+      jobId,
+      applicationId,
+    );
+
+    const evaluations = await this.prisma.evaluation.findMany({
+      where: {
+        panelMember: {
+          interview: { applicationId, organizationId },
+        },
+      },
+      orderBy: { submittedAt: 'asc' },
+      include: evaluationInclude,
+    });
+    return evaluations.map((evaluation) => this.toEvaluationDetail(evaluation));
+  }
+
+  private validateScores(scores: Record<string, number>) {
+    const entries = Object.entries(scores);
+    const invalid = entries.some(
+      ([, value]) => !Number.isInteger(value) || value < 1 || value > 5,
+    );
+    if (invalid) {
+      throw new BadRequestException(
+        'Each competency score must be an integer between 1 and 5.',
+      );
+    }
+  }
+
   // REQ-INT-002: "an interviewer must belong to the same organization as
   // the job." UserOrganizationRole is a core identity/RBAC table (like
   // TenantGuard and PermissionsGuard already query directly), not a
@@ -209,6 +323,22 @@ export class InterviewsService {
           email: member.interviewer.email,
         },
       })),
+    };
+  }
+
+  private toEvaluationDetail(evaluation: EvaluationWithPanelMember) {
+    return {
+      id: evaluation.id,
+      scores: evaluation.scores,
+      comment: evaluation.comment,
+      recommendation: evaluation.recommendation,
+      submittedAt: evaluation.submittedAt,
+      interviewId: evaluation.panelMember.interviewId,
+      interviewer: {
+        id: evaluation.panelMember.interviewer.id,
+        fullName: evaluation.panelMember.interviewer.fullName,
+        email: evaluation.panelMember.interviewer.email,
+      },
     };
   }
 

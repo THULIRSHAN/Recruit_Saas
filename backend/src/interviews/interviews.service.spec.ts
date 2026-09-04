@@ -1,9 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ApplicationsService } from '../applications/applications.service';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { InterviewsService } from './interviews.service';
 
@@ -15,18 +18,24 @@ function createPrismaMock() {
     count: jest.fn(),
   };
   const userOrganizationRole = { findMany: jest.fn() };
+  const interviewPanelMember = { findFirst: jest.fn() };
+  const evaluation = { create: jest.fn(), findMany: jest.fn() };
   const txMock = {
     interview: { create: jest.fn(), update: jest.fn() },
   };
   const prisma = {
     interview,
     userOrganizationRole,
+    interviewPanelMember,
+    evaluation,
     $transaction: jest.fn((arg: (tx: typeof txMock) => unknown) => arg(txMock)),
   };
   return {
     prisma: prisma as unknown as PrismaService,
     interview,
     userOrganizationRole,
+    interviewPanelMember,
+    evaluation,
     tx: txMock,
   };
 }
@@ -265,6 +274,170 @@ describe('InterviewsService', () => {
       );
       expect(result.data[0].application.candidate.id).toBe('cand-1');
       expect(result.meta).toEqual({ page: 1, pageSize: 20, total: 1 });
+    });
+  });
+
+  describe('submitEvaluation', () => {
+    it("creates an evaluation for the caller's own panel assignment (happy path)", async () => {
+      const { prisma, interviewPanelMember, evaluation } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      interviewPanelMember.findFirst.mockResolvedValue({
+        id: 'panel-1',
+        interviewId: 'interview-1',
+        interviewerId: 'interviewer-1',
+      });
+      evaluation.create.mockResolvedValue({
+        id: 'eval-1',
+        scores: { communication: 4 },
+        comment: 'Strong candidate.',
+        recommendation: 'YES',
+        submittedAt: new Date('2026-02-01T12:00:00Z'),
+      });
+      const service = new InterviewsService(prisma, applicationsService);
+
+      const result = await service.submitEvaluation(
+        'interviewer-1',
+        'interview-1',
+        {
+          scores: { communication: 4 },
+          comment: 'Strong candidate.',
+          recommendation: 'YES',
+        },
+      );
+
+      expect(interviewPanelMember.findFirst).toHaveBeenCalledWith({
+        where: { interviewId: 'interview-1', interviewerId: 'interviewer-1' },
+      });
+      expect(evaluation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            panelMemberId: 'panel-1',
+            scores: { communication: 4 },
+            recommendation: 'YES',
+          }) as unknown,
+        }),
+      );
+      expect(result.id).toBe('eval-1');
+    });
+
+    it('throws ForbiddenException when the caller is not a panel member of this interview', async () => {
+      const { prisma, interviewPanelMember } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      interviewPanelMember.findFirst.mockResolvedValue(null);
+      const service = new InterviewsService(prisma, applicationsService);
+
+      await expect(
+        service.submitEvaluation('outsider-1', 'interview-1', {
+          scores: { communication: 4 },
+          recommendation: 'YES',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('throws BadRequestException when a score is outside 1-5', async () => {
+      const { prisma, interviewPanelMember } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      interviewPanelMember.findFirst.mockResolvedValue({
+        id: 'panel-1',
+        interviewId: 'interview-1',
+        interviewerId: 'interviewer-1',
+      });
+      const service = new InterviewsService(prisma, applicationsService);
+
+      await expect(
+        service.submitEvaluation('interviewer-1', 'interview-1', {
+          scores: { communication: 6 },
+          recommendation: 'YES',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws ConflictException on a duplicate submission (P2002)', async () => {
+      const { prisma, interviewPanelMember, evaluation } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      interviewPanelMember.findFirst.mockResolvedValue({
+        id: 'panel-1',
+        interviewId: 'interview-1',
+        interviewerId: 'interviewer-1',
+      });
+      evaluation.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      const service = new InterviewsService(prisma, applicationsService);
+
+      await expect(
+        service.submitEvaluation('interviewer-1', 'interview-1', {
+          scores: { communication: 4 },
+          recommendation: 'YES',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('listEvaluationsForApplication', () => {
+    it('returns evaluations scoped to the application, with interviewer identity', async () => {
+      const { prisma, evaluation } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      applicationsService.getForJob.mockResolvedValue({
+        id: 'app-1',
+        status: 'ACTIVE',
+      } as never);
+      evaluation.findMany.mockResolvedValue([
+        {
+          id: 'eval-1',
+          scores: { communication: 4 },
+          comment: null,
+          recommendation: 'YES',
+          submittedAt: new Date('2026-02-01T12:00:00Z'),
+          panelMember: {
+            interviewId: 'interview-1',
+            interviewer: {
+              id: 'interviewer-1',
+              fullName: 'Ivy Interviewer',
+              email: 'ivy@example.com',
+            },
+          },
+        },
+      ]);
+      const service = new InterviewsService(prisma, applicationsService);
+
+      const result = await service.listEvaluationsForApplication(
+        'org-1',
+        'job-1',
+        'app-1',
+      );
+
+      expect(applicationsService.getForJob).toHaveBeenCalledWith(
+        'org-1',
+        'job-1',
+        'app-1',
+      );
+      expect(evaluation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            panelMember: {
+              interview: { applicationId: 'app-1', organizationId: 'org-1' },
+            },
+          },
+        }),
+      );
+      expect(result[0].interviewer.id).toBe('interviewer-1');
+    });
+
+    it('propagates NotFoundException from a cross-tenant/nonexistent application', async () => {
+      const { prisma } = createPrismaMock();
+      const applicationsService = createApplicationsServiceMock();
+      applicationsService.getForJob.mockRejectedValue(
+        new NotFoundException('Application not found.'),
+      );
+      const service = new InterviewsService(prisma, applicationsService);
+
+      await expect(
+        service.listEvaluationsForApplication('org-1', 'job-1', 'app-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

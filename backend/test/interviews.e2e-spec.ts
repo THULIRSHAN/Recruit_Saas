@@ -80,7 +80,10 @@ describe('Interviews (e2e)', () => {
     await grantPermission(recruiterRole.id, 'job:publish');
     await grantPermission(recruiterRole.id, 'pipeline:manage');
     await grantPermission(recruiterRole.id, 'interview:schedule');
+    // Q24: REQ-EVAL-002 names Recruiter as an actor for the aggregate view.
+    await grantPermission(recruiterRole.id, 'evaluation:read');
     await grantPermission(interviewerRole.id, 'interview:read');
+    await grantPermission(interviewerRole.id, 'evaluation:submit');
     await grantPermission(candidateRole.id, 'application:create');
     await grantPermission(candidateRole.id, 'candidateProfile:update');
   });
@@ -236,6 +239,23 @@ describe('Interviews (e2e)', () => {
       interviewerToken,
       interviewerId,
     };
+  }
+
+  async function scheduleInterview(
+    recruiterToken: string,
+    jobId: string,
+    applicationId: string,
+    interviewerId: string,
+  ) {
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/interviews`)
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .send({
+        scheduledAt: '2026-03-01T10:00:00.000Z',
+        mode: 'VIDEO',
+        interviewerIds: [interviewerId],
+      });
+    return res.body.id as string;
   }
 
   describe('POST /jobs/:jobId/applications/:id/interviews', () => {
@@ -466,6 +486,196 @@ describe('Interviews (e2e)', () => {
     it('rejects an unauthenticated request with 401', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/interviews/me')
+        .expect(401);
+    });
+  });
+
+  describe('POST /interviews/:interviewId/evaluation', () => {
+    it("submits an evaluation for the caller's own panel assignment (happy path)", async () => {
+      const {
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerToken,
+        interviewerId,
+      } = await setUpApplicationWithInterviewer('EvalHappy');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({
+          scores: { communication: 4, technical: 5 },
+          comment: 'Strong candidate.',
+          recommendation: 'YES',
+        })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        scores: { communication: 4, technical: 5 },
+        recommendation: 'YES',
+      });
+    });
+
+    it('returns 400 when a score is outside 1-5', async () => {
+      const {
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerToken,
+        interviewerId,
+      } = await setUpApplicationWithInterviewer('EvalBadScore');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({ scores: { communication: 6 }, recommendation: 'YES' })
+        .expect(400);
+    });
+
+    it('returns 409 on a second submission for the same interview', async () => {
+      const {
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerToken,
+        interviewerId,
+      } = await setUpApplicationWithInterviewer('EvalTwice');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({ scores: { communication: 4 }, recommendation: 'YES' });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({ scores: { communication: 3 }, recommendation: 'NO' })
+        .expect(409);
+    });
+
+    it('returns 403 for an interviewer not assigned to this interview (docs/testing.md §3)', async () => {
+      const { recruiterToken, jobId, applicationId, interviewerId, orgId } =
+        await setUpApplicationWithInterviewer('EvalUnassigned');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+      const { token: outsiderInterviewerToken } = await addStaffAndLogin(
+        orgId,
+        'INTERVIEWER',
+      );
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${outsiderInterviewerToken}`)
+        .send({ scores: { communication: 4 }, recommendation: 'YES' })
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const { recruiterToken, jobId, applicationId, interviewerId } =
+        await setUpApplicationWithInterviewer('EvalUnauth');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .send({ scores: { communication: 4 }, recommendation: 'YES' })
+        .expect(401);
+    });
+  });
+
+  describe('GET /jobs/:jobId/applications/:id/evaluations', () => {
+    it('returns the aggregate evaluations for the application (happy path)', async () => {
+      const {
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerToken,
+        interviewerId,
+      } = await setUpApplicationWithInterviewer('EvalListHappy');
+      const interviewId = await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+      await request(app.getHttpServer())
+        .post(`/api/v1/interviews/${interviewId}/evaluation`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({ scores: { communication: 4 }, recommendation: 'YES' });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${applicationId}/evaluations`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        recommendation: 'YES',
+        interviewer: { id: interviewerId },
+      });
+    });
+
+    it('returns 404 for a job belonging to another organization', async () => {
+      const { applicationId } =
+        await setUpApplicationWithInterviewer('EvalListCrossA');
+      const orgIdB = await registerAndApproveOrg('EvalListCrossB');
+      const { token: recruiterTokenB } = await addStaffAndLogin(
+        orgIdB,
+        'RECRUITER',
+      );
+      const jobIdB = await createPublishedJob(recruiterTokenB);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobIdB}/applications/${applicationId}/evaluations`)
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(404);
+    });
+
+    it('rejects a role without evaluation:read (e.g. Interviewer, who only holds evaluation:submit) with 403', async () => {
+      const { jobId, applicationId, orgId } =
+        await setUpApplicationWithInterviewer('EvalListForbidden');
+      const { token: otherInterviewerToken } = await addStaffAndLogin(
+        orgId,
+        'INTERVIEWER',
+      );
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${applicationId}/evaluations`)
+        .set('Authorization', `Bearer ${otherInterviewerToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const { jobId, applicationId } =
+        await setUpApplicationWithInterviewer('EvalListUnauth');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${applicationId}/evaluations`)
         .expect(401);
     });
   });

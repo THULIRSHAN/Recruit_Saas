@@ -542,4 +542,105 @@ describe('ApplicationsService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
+
+  describe('decide', () => {
+    it('hires an ACTIVE application', async () => {
+      const { prisma, application, tx } = createPrismaMock();
+      application.findFirst.mockResolvedValue(baseOrgApplication);
+      tx.application.update.mockResolvedValue({
+        ...baseOrgApplication,
+        status: 'HIRED',
+      });
+      const service = new ApplicationsService(prisma);
+
+      const result = await service.decide(
+        'org-1',
+        'actor-1',
+        'job-1',
+        'app-1',
+        { decision: 'HIRE' },
+      );
+
+      expect(tx.application.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'app-1' },
+          data: { status: 'HIRED' },
+        }),
+      );
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'application.hired',
+            targetId: 'app-1',
+          }) as unknown,
+        }),
+      );
+      expect(result.status).toBe('HIRED');
+    });
+
+    it('rejects an ACTIVE application with an optional reason', async () => {
+      const { prisma, application, tx } = createPrismaMock();
+      application.findFirst.mockResolvedValue(baseOrgApplication);
+      tx.application.update.mockResolvedValue({
+        ...baseOrgApplication,
+        status: 'REJECTED',
+        rejectedReason: 'Panel unanimous no.',
+      });
+      const service = new ApplicationsService(prisma);
+
+      const result = await service.decide(
+        'org-1',
+        'actor-1',
+        'job-1',
+        'app-1',
+        { decision: 'REJECT', reason: 'Panel unanimous no.' },
+      );
+
+      expect(tx.application.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'app-1' },
+          data: {
+            status: 'REJECTED',
+            rejectedReason: 'Panel unanimous no.',
+          },
+        }),
+      );
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'application.rejected',
+            targetId: 'app-1',
+          }) as unknown,
+        }),
+      );
+      expect(result.status).toBe('REJECTED');
+    });
+
+    it('throws ConflictException when the application is not ACTIVE', async () => {
+      const { prisma, application } = createPrismaMock();
+      application.findFirst.mockResolvedValue({
+        ...baseOrgApplication,
+        status: 'WITHDRAWN',
+      });
+      const service = new ApplicationsService(prisma);
+
+      await expect(
+        service.decide('org-1', 'actor-1', 'job-1', 'app-1', {
+          decision: 'HIRE',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('throws NotFoundException for an application outside this job/org', async () => {
+      const { prisma, application } = createPrismaMock();
+      application.findFirst.mockResolvedValue(null);
+      const service = new ApplicationsService(prisma);
+
+      await expect(
+        service.decide('org-1', 'actor-1', 'job-1', 'app-1', {
+          decision: 'HIRE',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
 });

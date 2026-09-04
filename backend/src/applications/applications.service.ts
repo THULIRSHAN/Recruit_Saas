@@ -12,6 +12,7 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateApplicationDto } from './dto/create-application.dto';
+import { DecideApplicationDto } from './dto/decide-application.dto';
 import { ListJobApplicationsQueryDto } from './dto/list-job-applications-query.dto';
 import { ListMyApplicationsQueryDto } from './dto/list-my-applications-query.dto';
 import { ScreenApplicationDto } from './dto/screen-application.dto';
@@ -243,7 +244,7 @@ export class ApplicationsService {
             action: 'application.rejected',
             targetType: 'Application',
             targetId: application.id,
-            metadata: { reason: dto.reason ?? null },
+            metadata: { reason: dto.reason ?? null, source: 'screening' },
           },
         });
         return this.toOrgDetail(updated);
@@ -271,6 +272,60 @@ export class ApplicationsService {
           fromStageId: application.stage.id,
           toStageId: nextStage.id,
           movedById: actorId,
+        },
+      });
+      return this.toOrgDetail(updated);
+    });
+  }
+
+  // REQ-HIRE-001/Q6: Hiring Manager's final decision. Unlike screen()'s
+  // PASS, there's no "move to next stage" outcome here -- HIRE and REJECT
+  // both set a terminal status, mirroring withdraw()/screen()'s reasoning
+  // that a status transition, not a pipeline position, is what "final"
+  // means for an Application. No @@unique or partial-index race to guard
+  // against here (unlike M7.3's create()), since the ACTIVE precondition
+  // below is the only path into this state change.
+  async decide(
+    orgId: string | null,
+    actorId: string,
+    jobId: string,
+    id: string,
+    dto: DecideApplicationDto,
+  ) {
+    const organizationId = this.requireOrgId(orgId);
+    const application = await this.requireJobApplication(
+      organizationId,
+      jobId,
+      id,
+    );
+    if (application.status !== ApplicationStatus.ACTIVE) {
+      throw new ConflictException(
+        `Application is already ${application.status.toLowerCase()}.`,
+      );
+    }
+
+    const isHire = dto.decision === 'HIRE';
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application.update({
+        where: { id: application.id },
+        data: isHire
+          ? { status: ApplicationStatus.HIRED }
+          : {
+              status: ApplicationStatus.REJECTED,
+              rejectedReason: dto.reason,
+            },
+        include: orgApplicationInclude,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          organizationId,
+          action: isHire ? 'application.hired' : 'application.rejected',
+          targetType: 'Application',
+          targetId: application.id,
+          metadata: isHire
+            ? {}
+            : { reason: dto.reason ?? null, source: 'decision' },
         },
       });
       return this.toOrgDetail(updated);

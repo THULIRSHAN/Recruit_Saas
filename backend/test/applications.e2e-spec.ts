@@ -94,6 +94,8 @@ describe('ApplicationsController (e2e)', () => {
     // Deliberately no application:screen -- REQ-APP-002's stated actor is
     // Recruiter only.
     await grantPermission(hiringManagerRole.id, 'application:read');
+    // Q6: Hiring Manager is the sole finalizer for REQ-HIRE-001.
+    await grantPermission(hiringManagerRole.id, 'application:decide');
   });
 
   afterAll(async () => {
@@ -713,6 +715,116 @@ describe('ApplicationsController (e2e)', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
         .send({ decision: 'REJECT' })
+        .expect(401);
+    });
+  });
+
+  describe('POST /jobs/:jobId/applications/:id/decide', () => {
+    it('HIRE sets a HIRED status (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('DecideHire');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('DecideHire');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .send({ decision: 'HIRE' })
+        .expect(201);
+
+      expect(res.body.status).toBe('HIRED');
+    });
+
+    it('REJECT sets a REJECTED status with the given reason', async () => {
+      const orgId = await registerAndApproveOrg('DecideReject');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('DecideReject');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .send({ decision: 'REJECT', reason: 'Panel unanimous no.' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        status: 'REJECTED',
+        rejectedReason: 'Panel unanimous no.',
+      });
+    });
+
+    it('returns 409 when the application is already decided', async () => {
+      const orgId = await registerAndApproveOrg('DecideTwice');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('DecideTwice');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .send({ decision: 'HIRE' });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${hmToken}`)
+        .send({ decision: 'REJECT' })
+        .expect(409);
+    });
+
+    it('rejects a Recruiter (application:screen only, not application:decide) with 403', async () => {
+      const orgId = await registerAndApproveOrg('DecideForbidden');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('DecideForbidden');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'HIRE' })
+        .expect(403);
+    });
+
+    it('returns 404 for a cross-tenant application id', async () => {
+      const orgIdA = await registerAndApproveOrg('DecideCrossA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgIdA);
+      const jobIdA = await createPublishedJob(recruiterTokenA);
+      const candidateToken = await registerCandidateAndLogin('DecideCrossA');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobIdA);
+
+      const orgIdB = await registerAndApproveOrg('DecideCrossB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgIdB);
+      const jobIdB = await createPublishedJob(recruiterTokenB);
+      const hmTokenB = await addStaffAndLogin(orgIdB, 'HIRING_MANAGER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobIdB}/applications/${appId}/decide`)
+        .set('Authorization', `Bearer ${hmTokenB}`)
+        .send({ decision: 'HIRE' })
+        .expect(404);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const orgId = await registerAndApproveOrg('DecideUnauth');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('DecideUnauth');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
+        .send({ decision: 'HIRE' })
         .expect(401);
     });
   });

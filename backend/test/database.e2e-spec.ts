@@ -32,6 +32,10 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'pipeline:manage',
     'interview:schedule',
     'interview:read',
+    // docs/open-questions.md Q24 -- not in authorization.md's original
+    // table, added as a documented fix (REQ-EVAL-002 names Recruiter as
+    // an actor for the aggregate evaluation view).
+    'evaluation:read',
   ],
   HIRING_MANAGER: [
     'application:read',
