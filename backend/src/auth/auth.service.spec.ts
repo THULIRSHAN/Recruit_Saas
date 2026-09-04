@@ -145,6 +145,31 @@ describe('AuthService', () => {
       ).toHaveBeenCalledTimes(1);
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
+
+    it('creates an already-verified user and skips issuing a verification token when emailPreVerified is set', async () => {
+      const prisma = createPrismaMock();
+      const service = createService(prisma);
+      (prisma.user.create as jest.Mock).mockResolvedValue({
+        id: 'user-1',
+        email: 'invitee@example.com',
+      });
+
+      const result = await service.createUserAccount(
+        {
+          email: 'invitee@example.com',
+          password: 'password123',
+          fullName: 'Invited Person',
+        },
+        undefined,
+        { emailPreVerified: true },
+      );
+
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ emailVerified: true }) as unknown,
+      });
+      expect(prisma.verificationToken.create).not.toHaveBeenCalled();
+      expect(result.rawVerificationToken).toBeNull();
+    });
   });
 
   describe('verifyEmail', () => {

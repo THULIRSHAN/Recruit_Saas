@@ -89,16 +89,27 @@ export class AuthService {
   // transaction client instead of always using `this.prisma` directly.
   // Centralizes password hashing + duplicate-email handling + verification-
   // token issuance in one place rather than duplicating it per caller.
+  //
+  // `emailPreVerified` is for OrganizationsService's invitation-accept flow
+  // (REQ-AUTH-008): possessing the invitation token already proves the
+  // invitee controls that inbox, the same guarantee a separate
+  // email-verification round trip would provide -- so skip issuing one.
   async createUserAccount(
     dto: { email: string; password: string; fullName: string },
     client: Prisma.TransactionClient | PrismaService = this.prisma,
+    options?: { emailPreVerified?: boolean },
   ) {
     const passwordHash = await this.hashPassword(dto.password);
 
     let user;
     try {
       user = await client.user.create({
-        data: { email: dto.email, passwordHash, fullName: dto.fullName },
+        data: {
+          email: dto.email,
+          passwordHash,
+          fullName: dto.fullName,
+          emailVerified: options?.emailPreVerified ?? false,
+        },
       });
     } catch (error) {
       // P2002 = unique constraint violation (email). Generic message on
@@ -113,6 +124,10 @@ export class AuthService {
         throw new ConflictException('An account may already exist.');
       }
       throw error;
+    }
+
+    if (options?.emailPreVerified) {
+      return { user, rawVerificationToken: null };
     }
 
     const rawVerificationToken = this.generateOpaqueToken();

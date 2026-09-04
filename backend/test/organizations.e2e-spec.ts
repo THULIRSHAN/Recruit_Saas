@@ -187,6 +187,32 @@ describe('OrganizationsController (e2e)', () => {
     return loginRes.body.accessToken as string;
   }
 
+  // Bypasses POST /organizations/me/invitations to set up fixtures directly
+  // (including edge cases like already-expired) -- same rationale as
+  // createPendingOrg.
+  async function createInvitation(
+    orgId: string,
+    email: string,
+    roleKey: string,
+    overrides: { expiresAt?: Date; acceptedAt?: Date } = {},
+  ) {
+    const role = await prisma.role.findUniqueOrThrow({
+      where: { key: roleKey },
+    });
+    const rawToken = authService.generateOpaqueToken();
+    await prisma.invitation.create({
+      data: {
+        organizationId: orgId,
+        email,
+        roleId: role.id,
+        tokenHash: authService.hashOpaqueToken(rawToken),
+        expiresAt: overrides.expiresAt ?? new Date(Date.now() + 60_000),
+        acceptedAt: overrides.acceptedAt,
+      },
+    });
+    return rawToken;
+  }
+
   describe('POST /organizations', () => {
     it('registers a new organization with its owner, unauthenticated', async () => {
       const email = `owner-${Date.now()}@org-e2e.test`;
@@ -673,6 +699,115 @@ describe('OrganizationsController (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ email: recruiterUser.user.email, roleKey: 'RECRUITER' })
         .expect(409);
+    });
+  });
+
+  describe('POST /invitations/:token/accept', () => {
+    it('creates a new, pre-verified user and attaches the role (new-user path), unauthenticated', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('AcceptNewUser');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+      const token = await createInvitation(orgId, email, 'RECRUITER');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({ fullName: 'New Hire', password: 'password123' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        organizationId: orgId,
+        email,
+        role: { key: 'RECRUITER' },
+      });
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      expect(user.emailVerified).toBe(true);
+      const membership = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { userId: user.id, organizationId: orgId },
+        include: { role: true },
+      });
+      expect(membership.role.key).toBe('RECRUITER');
+    });
+
+    it('attaches the role to an existing user without a password (existing-user path)', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('AcceptExistingUser');
+      await approveOrg(orgId);
+      const existingEmail = `existing-${Date.now()}@org-e2e.test`;
+      const passwordHash = await authService.hashPassword('password123');
+      const existingUser = await prisma.user.create({
+        data: {
+          email: existingEmail,
+          passwordHash,
+          fullName: 'Existing Person',
+          emailVerified: true,
+        },
+      });
+      const token = await createInvitation(orgId, existingEmail, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({})
+        .expect(201);
+
+      const membership = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { userId: existingUser.id, organizationId: orgId },
+        include: { role: true },
+      });
+      expect(membership.role.key).toBe('RECRUITER');
+    });
+
+    it('rejects an unknown token with 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/invitations/not-a-real-token/accept')
+        .send({})
+        .expect(400);
+    });
+
+    it('rejects an already-accepted invitation with 400', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('AcceptTwice');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+      const token = await createInvitation(orgId, email, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({ fullName: 'New Hire', password: 'password123' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({ fullName: 'New Hire', password: 'password123' })
+        .expect(400);
+    });
+
+    it('rejects an expired invitation with 400', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('AcceptExpired');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+      const token = await createInvitation(orgId, email, 'RECRUITER', {
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({ fullName: 'New Hire', password: 'password123' })
+        .expect(400);
+    });
+
+    it('rejects a new user missing fullName/password with 400', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('AcceptMissingFields');
+      await approveOrg(orgId);
+      const email = `invitee-${Date.now()}@org-e2e.test`;
+      const token = await createInvitation(orgId, email, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/invitations/${token}/accept`)
+        .send({})
+        .expect(400);
+
+      await expect(
+        prisma.user.findUnique({ where: { email } }),
+      ).resolves.toBeNull();
     });
   });
 });

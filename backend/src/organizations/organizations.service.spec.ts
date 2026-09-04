@@ -15,8 +15,10 @@ function createPrismaMock() {
       update: jest.fn(),
     },
     role: { findUniqueOrThrow: jest.fn() },
-    userOrganizationRole: { create: jest.fn() },
+    user: { findUnique: jest.fn() },
+    userOrganizationRole: { create: jest.fn(), findUnique: jest.fn() },
     auditLog: { create: jest.fn() },
+    invitation: { updateMany: jest.fn() },
   };
   const topLevel = {
     organization: {
@@ -28,7 +30,11 @@ function createPrismaMock() {
     role: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
     userOrganizationRole: { findUnique: jest.fn() },
-    invitation: { findFirst: jest.fn(), create: jest.fn() },
+    invitation: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+    },
   };
   const prisma = {
     ...topLevel,
@@ -570,6 +576,220 @@ describe('OrganizationsService', () => {
         }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(topLevel.invitation.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('acceptInvitation', () => {
+    function mockValidPendingInvitation(
+      topLevel: ReturnType<typeof createPrismaMock>['topLevel'],
+    ) {
+      topLevel.invitation.findUnique.mockResolvedValue({
+        id: 'invite-1',
+        organizationId: 'org-1',
+        email: 'invitee@example.com',
+        roleId: 'role-recruiter',
+        acceptedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    }
+
+    it('creates a new user, pre-verified, and attaches the role (new-user path)', async () => {
+      const { prisma, tx, topLevel } = createPrismaMock();
+      mockValidPendingInvitation(topLevel);
+      tx.invitation.updateMany.mockResolvedValue({ count: 1 });
+      tx.role.findUniqueOrThrow.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+      });
+      tx.user.findUnique.mockResolvedValue(null);
+      tx.userOrganizationRole.findUnique.mockResolvedValue(null);
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+        createUserAccount: jest.fn().mockResolvedValue({
+          user: { id: 'user-new', email: 'invitee@example.com' },
+        }),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+      const result = await service.acceptInvitation('raw-token', {
+        fullName: 'New Hire',
+        password: 'password123',
+      });
+
+      expect(authService.createUserAccount).toHaveBeenCalledWith(
+        {
+          email: 'invitee@example.com',
+          password: 'password123',
+          fullName: 'New Hire',
+        },
+        tx,
+        { emailPreVerified: true },
+      );
+      expect(tx.userOrganizationRole.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-new',
+          organizationId: 'org-1',
+          roleId: 'role-recruiter',
+        },
+      });
+      expect(result).toEqual({
+        organizationId: 'org-1',
+        email: 'invitee@example.com',
+        role: { key: 'RECRUITER', name: 'Recruiter' },
+      });
+    });
+
+    it('attaches the role to an existing user without creating a new account (existing-user path)', async () => {
+      const { prisma, tx, topLevel } = createPrismaMock();
+      mockValidPendingInvitation(topLevel);
+      tx.invitation.updateMany.mockResolvedValue({ count: 1 });
+      tx.role.findUniqueOrThrow.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+      });
+      tx.user.findUnique.mockResolvedValue({
+        id: 'user-existing',
+        email: 'invitee@example.com',
+      });
+      tx.userOrganizationRole.findUnique.mockResolvedValue(null);
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+        createUserAccount: jest.fn(),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+      await service.acceptInvitation('raw-token', {});
+
+      expect(authService.createUserAccount).not.toHaveBeenCalled();
+      expect(tx.userOrganizationRole.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-existing',
+          organizationId: 'org-1',
+          roleId: 'role-recruiter',
+        },
+      });
+    });
+
+    it('is idempotent if the existing user already holds the role', async () => {
+      const { prisma, tx, topLevel } = createPrismaMock();
+      mockValidPendingInvitation(topLevel);
+      tx.invitation.updateMany.mockResolvedValue({ count: 1 });
+      tx.role.findUniqueOrThrow.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+      });
+      tx.user.findUnique.mockResolvedValue({
+        id: 'user-existing',
+        email: 'invitee@example.com',
+      });
+      tx.userOrganizationRole.findUnique.mockResolvedValue({
+        id: 'membership-1',
+      });
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+      await service.acceptInvitation('raw-token', {});
+
+      expect(tx.userOrganizationRole.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the token does not match any invitation', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      topLevel.invitation.findUnique.mockResolvedValue(null);
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.acceptInvitation('raw-token', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws BadRequestException for an already-accepted invitation', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      topLevel.invitation.findUnique.mockResolvedValue({
+        id: 'invite-1',
+        organizationId: 'org-1',
+        email: 'invitee@example.com',
+        roleId: 'role-recruiter',
+        acceptedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.acceptInvitation('raw-token', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws BadRequestException for an expired invitation', async () => {
+      const { prisma, topLevel } = createPrismaMock();
+      topLevel.invitation.findUnique.mockResolvedValue({
+        id: 'invite-1',
+        organizationId: 'org-1',
+        email: 'invitee@example.com',
+        roleId: 'role-recruiter',
+        acceptedAt: null,
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.acceptInvitation('raw-token', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('throws BadRequestException for a new user missing fullName/password', async () => {
+      const { prisma, tx, topLevel } = createPrismaMock();
+      mockValidPendingInvitation(topLevel);
+      tx.invitation.updateMany.mockResolvedValue({ count: 1 });
+      tx.role.findUniqueOrThrow.mockResolvedValue({
+        id: 'role-recruiter',
+        key: 'RECRUITER',
+        name: 'Recruiter',
+      });
+      tx.user.findUnique.mockResolvedValue(null);
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.acceptInvitation('raw-token', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(tx.userOrganizationRole.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException if a concurrent request already claimed the token', async () => {
+      const { prisma, tx, topLevel } = createPrismaMock();
+      mockValidPendingInvitation(topLevel);
+      tx.invitation.updateMany.mockResolvedValue({ count: 0 });
+      const authService = {
+        hashOpaqueToken: jest.fn().mockReturnValue('hashed-token'),
+      } as unknown as AuthService;
+
+      const service = new OrganizationsService(prisma, authService);
+
+      await expect(
+        service.acceptInvitation('raw-token', {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(tx.role.findUniqueOrThrow).not.toHaveBeenCalled();
     });
   });
 });

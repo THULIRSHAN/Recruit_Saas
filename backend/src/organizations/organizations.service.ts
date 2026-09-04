@@ -8,12 +8,14 @@ import {
 import { AuthService } from '../auth/auth.service';
 import { OrganizationStatus, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AcceptInvitationDto } from './dto/accept-invitation.dto';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 
 const ORG_NOT_FOUND_MESSAGE = 'Organization not found.';
+const INVALID_INVITATION_MESSAGE = 'Invalid or expired invitation.';
 
 // docs/open-questions.md Q11: CANDIDATE is implicit, never assigned via
 // UserOrganizationRole -- it can't be invited into. SUPER_ADMIN is
@@ -260,6 +262,91 @@ export class OrganizationsService {
       expiresAt: invitation.expiresAt,
       createdAt: invitation.createdAt,
     };
+  }
+
+  // REQ-AUTH-008: "if new user, sets password and account is created
+  // pre-bound to the org+role; if existing user, the role is attached to
+  // their account for that org." Public -- possessing the token is the
+  // proof of identity, same trust model as password reset (docs/
+  // authentication.md §3: "validate token, update passwordHash", no
+  // separate re-auth step).
+  async acceptInvitation(rawToken: string, dto: AcceptInvitationDto) {
+    const tokenHash = this.authService.hashOpaqueToken(rawToken);
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { tokenHash },
+    });
+    if (
+      !invitation ||
+      invitation.acceptedAt ||
+      invitation.expiresAt < new Date()
+    ) {
+      throw new BadRequestException(INVALID_INVITATION_MESSAGE);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Guard the claim on acceptedAt: null so a concurrent replay of the
+      // same token can't also succeed -- same pattern as
+      // AuthService.claimToken/claimRefreshToken.
+      const claim = await tx.invitation.updateMany({
+        where: { id: invitation.id, acceptedAt: null },
+        data: { acceptedAt: new Date() },
+      });
+      if (claim.count === 0) {
+        throw new BadRequestException(INVALID_INVITATION_MESSAGE);
+      }
+
+      const role = await tx.role.findUniqueOrThrow({
+        where: { id: invitation.roleId },
+      });
+
+      let user = await tx.user.findUnique({
+        where: { email: invitation.email },
+      });
+      if (!user) {
+        if (!dto.fullName || !dto.password) {
+          throw new BadRequestException(
+            'fullName and password are required to accept this invitation.',
+          );
+        }
+        const created = await this.authService.createUserAccount(
+          {
+            email: invitation.email,
+            password: dto.password,
+            fullName: dto.fullName,
+          },
+          tx,
+          { emailPreVerified: true },
+        );
+        user = created.user;
+      }
+
+      // Idempotent against an unlikely double-grant (e.g. two separate
+      // invitations for the same email+role, both accepted).
+      const alreadyMember = await tx.userOrganizationRole.findUnique({
+        where: {
+          userId_organizationId_roleId: {
+            userId: user.id,
+            organizationId: invitation.organizationId,
+            roleId: invitation.roleId,
+          },
+        },
+      });
+      if (!alreadyMember) {
+        await tx.userOrganizationRole.create({
+          data: {
+            userId: user.id,
+            organizationId: invitation.organizationId,
+            roleId: invitation.roleId,
+          },
+        });
+      }
+
+      return {
+        organizationId: invitation.organizationId,
+        email: invitation.email,
+        role: { key: role.key, name: role.name },
+      };
+    });
   }
 
   private async requireOwnOrganization(orgId: string | null) {
