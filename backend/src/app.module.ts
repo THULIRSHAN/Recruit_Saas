@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { TenantGuard } from './auth/guards/tenant.guard';
+import { CandidatesModule } from './candidates/candidates.module';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs/jobs.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -35,6 +36,7 @@ import { PrismaModule } from './prisma/prisma.module';
     OrganizationsModule,
     JobsModule,
     PipelineTemplatesModule,
+    CandidatesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
