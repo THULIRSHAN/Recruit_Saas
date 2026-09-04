@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { config } from 'dotenv';
+import bcrypt from 'bcryptjs';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
 
@@ -168,6 +169,44 @@ async function main() {
   console.log(
     `Seeded ${permissionsByKey.size} permissions and ${ROLES.length} roles.`,
   );
+
+  await seedSuperAdmin();
+}
+
+// Per docs/open-questions.md Q13: no registration flow ever sets
+// isSuperAdmin=true (deliberately -- exposing that via an API would be a
+// privilege-escalation hole), so the first Super Admin has to come from
+// somewhere. Bootstraps one from env vars if provided; a no-op otherwise
+// (e.g. CI, or a fresh clone before anyone has set them).
+async function seedSuperAdmin() {
+  const email = process.env.SUPER_ADMIN_EMAIL;
+  const password = process.env.SUPER_ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.log(
+      'SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD not set -- skipping Super Admin bootstrap.',
+    );
+    return;
+  }
+
+  const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS ?? 12);
+  const passwordHash = await bcrypt.hash(password, saltRounds);
+
+  await prisma.user.upsert({
+    where: { email },
+    // Kept in sync with the env vars on every reseed, not just created
+    // once -- if SUPER_ADMIN_PASSWORD changes, re-running the seed rotates
+    // the existing account's password rather than silently ignoring it.
+    update: { passwordHash, isSuperAdmin: true },
+    create: {
+      email,
+      passwordHash,
+      fullName: 'Super Admin',
+      isSuperAdmin: true,
+      emailVerified: true,
+    },
+  });
+
+  console.log(`Seeded Super Admin: ${email}`);
 }
 
 main()

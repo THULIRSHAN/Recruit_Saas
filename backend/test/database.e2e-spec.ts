@@ -84,12 +84,13 @@ function sorted(values: string[]): string[] {
   return [...values].sort();
 }
 
-function runSeed(): void {
+function runSeed(extraEnv: Record<string, string> = {}): void {
   // execSync (not execFile): needs shell resolution to find npx/npx.cmd
   // across platforms (this project runs on both Windows dev and Linux CI).
   execSync('npx tsx prisma/seed.ts', {
     cwd: path.resolve(__dirname, '..'),
     stdio: 'pipe',
+    env: { ...process.env, ...extraEnv },
   });
 }
 
@@ -144,5 +145,69 @@ describe('database seed (e2e)', () => {
     expect(await prisma.role.count()).toBe(rolesBefore);
     expect(await prisma.permission.count()).toBe(permissionsBefore);
     expect(await prisma.rolePermission.count()).toBe(mappingsBefore);
+  });
+
+  describe('Super Admin bootstrap (docs/open-questions.md Q13)', () => {
+    // Explicit env vars per test, not relying on ambient .env state -- CI
+    // doesn't set these (each e2e file seeds its own fixtures instead), so
+    // a test depending on the ambient environment would pass locally and
+    // fail in CI.
+    const email = `test-super-admin-${Date.now()}@example.com`;
+
+    afterAll(async () => {
+      await prisma.user.deleteMany({ where: { email } });
+    });
+
+    it('creates a Super Admin user when the env vars are provided', async () => {
+      runSeed({
+        SUPER_ADMIN_EMAIL: email,
+        SUPER_ADMIN_PASSWORD: 'testpassword123',
+      });
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      expect(user.isSuperAdmin).toBe(true);
+      expect(user.emailVerified).toBe(true);
+      expect(user.passwordHash).not.toBe('testpassword123');
+    });
+
+    it('is idempotent and rotates the password hash on reseed, without creating a duplicate', async () => {
+      const before = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+      runSeed({
+        SUPER_ADMIN_EMAIL: email,
+        SUPER_ADMIN_PASSWORD: 'a-different-password456',
+      });
+
+      const after = await prisma.user.findUniqueOrThrow({ where: { email } });
+      expect(after.id).toBe(before.id);
+      expect(after.passwordHash).not.toBe(before.passwordHash);
+      await expect(prisma.user.count({ where: { email } })).resolves.toBe(1);
+    });
+
+    it('does not create or change any Super Admin when the env vars are absent', async () => {
+      const before = await prisma.user.findMany({
+        where: { isSuperAdmin: true },
+        select: { id: true },
+      });
+
+      // Explicitly unset (rather than just omitting from extraEnv) so this
+      // doesn't accidentally inherit a real ambient SUPER_ADMIN_EMAIL.
+      const env = { ...process.env };
+      delete env.SUPER_ADMIN_EMAIL;
+      delete env.SUPER_ADMIN_PASSWORD;
+      execSync('npx tsx prisma/seed.ts', {
+        cwd: path.resolve(__dirname, '..'),
+        stdio: 'pipe',
+        env,
+      });
+
+      const after = await prisma.user.findMany({
+        where: { isSuperAdmin: true },
+        select: { id: true },
+      });
+      expect(after.map((u) => u.id).sort()).toEqual(
+        before.map((u) => u.id).sort(),
+      );
+    });
   });
 });
