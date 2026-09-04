@@ -4,9 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Job } from '../generated/prisma/client';
+import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApplyPipelineTemplateDto } from './dto/apply-pipeline-template.dto';
 import { CreateJobDto } from './dto/create-job.dto';
 import { ListJobsQueryDto } from './dto/list-jobs-query.dto';
+import { ReplaceJobStagesDto } from './dto/replace-job-stages.dto';
 import { UpdateJobDto } from './dto/update-job.dto';
 
 const JOB_NOT_FOUND_MESSAGE = 'Job not found.';
@@ -17,7 +20,13 @@ const NO_ORG_CONTEXT_MESSAGE = 'No organization in session context.';
 
 @Injectable()
 export class JobsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Reused for apply-template's ownership check (getOne 404s a
+    // cross-tenant or nonexistent templateId) instead of JobsService
+    // reaching into prisma.pipelineTemplate directly (CLAUDE.md rule 4).
+    private readonly pipelineTemplatesService: PipelineTemplatesService,
+  ) {}
 
   // REQ-JOB-001: DRAFT by default (see JobStatus.@default in schema).
   // organizationId/createdById come only from the authenticated context,
@@ -72,12 +81,7 @@ export class JobsService {
   // removed or misconfigured.
   async getOne(orgId: string | null, id: string) {
     const organizationId = this.requireOrgId(orgId);
-    const job = await this.prisma.job.findFirst({
-      where: { id, organizationId },
-    });
-    if (!job) {
-      throw new NotFoundException(JOB_NOT_FOUND_MESSAGE);
-    }
+    const job = await this.requireJob(id, organizationId);
     return this.toDetail(job);
   }
 
@@ -85,19 +89,87 @@ export class JobsService {
   async update(orgId: string | null, id: string, dto: UpdateJobDto) {
     const organizationId = this.requireOrgId(orgId);
     this.validateSalaryRange(dto.salaryMin, dto.salaryMax);
-
-    const job = await this.prisma.job.findFirst({
-      where: { id, organizationId },
-    });
-    if (!job) {
-      throw new NotFoundException(JOB_NOT_FOUND_MESSAGE);
-    }
+    await this.requireJob(id, organizationId);
 
     const updated = await this.prisma.job.update({
       where: { id },
       data: dto,
     });
     return this.toDetail(updated);
+  }
+
+  // REQ-PIPE-001: RecruitmentStage is snapshotted per-job, not a live
+  // reference to a template -- see the model comment in schema.prisma.
+  async listStages(orgId: string | null, jobId: string) {
+    const organizationId = this.requireOrgId(orgId);
+    await this.requireJob(jobId, organizationId);
+
+    const stages = await this.prisma.recruitmentStage.findMany({
+      where: { jobId },
+      orderBy: { order: 'asc' },
+    });
+    return stages.map((stage) => this.toStageDetail(stage));
+  }
+
+  // Replaces the job's stage list wholesale (delete + recreate) -- same
+  // pattern as PipelineTemplatesService.update's stage replacement.
+  async replaceStages(
+    orgId: string | null,
+    jobId: string,
+    dto: ReplaceJobStagesDto,
+  ) {
+    const organizationId = this.requireOrgId(orgId);
+    await this.requireJob(jobId, organizationId);
+    return this.setStages(jobId, dto.stages);
+  }
+
+  // REQ-PIPE-001: "orgs can... apply [a pipeline template] to new jobs."
+  // Copies the template's current stage names into new RecruitmentStage
+  // rows -- a one-time snapshot, not a live link back to the template.
+  async applyTemplate(
+    orgId: string | null,
+    jobId: string,
+    dto: ApplyPipelineTemplateDto,
+  ) {
+    const organizationId = this.requireOrgId(orgId);
+    await this.requireJob(jobId, organizationId);
+
+    // getOne 404s if the template doesn't exist or belongs to another org
+    // -- reusing PipelineTemplatesService's own tenant check rather than
+    // duplicating it here.
+    const template = await this.pipelineTemplatesService.getOne(
+      orgId,
+      dto.pipelineTemplateId,
+    );
+    const stageNames = [...template.stages]
+      .sort((a, b) => a.order - b.order)
+      .map((stage) => stage.name);
+
+    return this.setStages(jobId, stageNames);
+  }
+
+  private async setStages(jobId: string, stageNames: string[]) {
+    const stages = await this.prisma.$transaction(async (tx) => {
+      await tx.recruitmentStage.deleteMany({ where: { jobId } });
+      await tx.recruitmentStage.createMany({
+        data: stageNames.map((name, index) => ({ jobId, name, order: index })),
+      });
+      return tx.recruitmentStage.findMany({
+        where: { jobId },
+        orderBy: { order: 'asc' },
+      });
+    });
+    return stages.map((stage) => this.toStageDetail(stage));
+  }
+
+  private async requireJob(id: string, organizationId: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id, organizationId },
+    });
+    if (!job) {
+      throw new NotFoundException(JOB_NOT_FOUND_MESSAGE);
+    }
+    return job;
   }
 
   private requireOrgId(orgId: string | null): string {
@@ -137,5 +209,9 @@ export class JobsService {
       publishedAt: job.publishedAt,
       closedAt: job.closedAt,
     };
+  }
+
+  private toStageDetail(stage: { id: string; name: string; order: number }) {
+    return { id: stage.id, name: stage.name, order: stage.order };
   }
 }

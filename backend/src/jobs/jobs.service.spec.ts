@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { JobsService } from './jobs.service';
+import { PipelineTemplatesService } from '../pipeline-templates/pipeline-templates.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 function createPrismaMock() {
@@ -10,7 +11,24 @@ function createPrismaMock() {
     findFirst: jest.fn(),
     update: jest.fn(),
   };
-  return { prisma: { job } as unknown as PrismaService, job };
+  const recruitmentStage = {
+    findMany: jest.fn(),
+    deleteMany: jest.fn(),
+    createMany: jest.fn(),
+  };
+  const txMock = { recruitmentStage };
+  const prisma = {
+    job,
+    recruitmentStage,
+    $transaction: jest.fn((callback: (tx: typeof txMock) => unknown) =>
+      callback(txMock),
+    ),
+  };
+  return { prisma: prisma as unknown as PrismaService, job, recruitmentStage };
+}
+
+function createPipelineTemplatesServiceMock() {
+  return { getOne: jest.fn() } as unknown as PipelineTemplatesService;
 }
 
 const baseJob = {
@@ -36,7 +54,10 @@ describe('JobsService', () => {
     it('creates a DRAFT job scoped to the caller org, ignoring any client-supplied org', async () => {
       const { prisma, job } = createPrismaMock();
       job.create.mockResolvedValue(baseJob);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       const result = await service.create('org-1', 'user-1', {
         title: 'Software Engineer',
@@ -61,7 +82,10 @@ describe('JobsService', () => {
 
     it('throws BadRequestException when salaryMin > salaryMax', async () => {
       const { prisma, job } = createPrismaMock();
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await expect(
         service.create('org-1', 'user-1', {
@@ -76,7 +100,10 @@ describe('JobsService', () => {
 
     it('throws NotFoundException when the caller has no org in their token', async () => {
       const { prisma, job } = createPrismaMock();
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await expect(
         service.create(null, 'user-1', {
@@ -93,7 +120,10 @@ describe('JobsService', () => {
       const { prisma, job } = createPrismaMock();
       job.findMany.mockResolvedValue([baseJob]);
       job.count.mockResolvedValue(1);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       const result = await service.list('org-1', {
         status: 'DRAFT',
@@ -116,7 +146,10 @@ describe('JobsService', () => {
       const { prisma, job } = createPrismaMock();
       job.findMany.mockResolvedValue([]);
       job.count.mockResolvedValue(0);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await service.list('org-1', { page: 1, pageSize: 20 });
 
@@ -130,7 +163,10 @@ describe('JobsService', () => {
     it('returns a job scoped to the caller org', async () => {
       const { prisma, job } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       const result = await service.getOne('org-1', 'job-1');
 
@@ -143,7 +179,10 @@ describe('JobsService', () => {
     it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
       const { prisma, job } = createPrismaMock();
       job.findFirst.mockResolvedValue(null);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await expect(service.getOne('org-1', 'job-1')).rejects.toBeInstanceOf(
         NotFoundException,
@@ -156,7 +195,10 @@ describe('JobsService', () => {
       const { prisma, job } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
       job.update.mockResolvedValue({ ...baseJob, title: 'Senior Engineer' });
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       const result = await service.update('org-1', 'job-1', {
         title: 'Senior Engineer',
@@ -175,7 +217,10 @@ describe('JobsService', () => {
     it('throws NotFoundException for a cross-tenant or nonexistent job, without updating', async () => {
       const { prisma, job } = createPrismaMock();
       job.findFirst.mockResolvedValue(null);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await expect(
         service.update('org-1', 'job-1', { title: 'Senior Engineer' }),
@@ -186,7 +231,10 @@ describe('JobsService', () => {
     it('throws BadRequestException when salaryMin > salaryMax', async () => {
       const { prisma, job } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
-      const service = new JobsService(prisma);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
 
       await expect(
         service.update('org-1', 'job-1', {
@@ -195,6 +243,156 @@ describe('JobsService', () => {
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(job.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listStages', () => {
+    it('returns ordered stages for a job scoped to the caller org', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.findMany.mockResolvedValue([
+        { id: 'stage-1', name: 'Applied', order: 0 },
+      ]);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.listStages('org-1', 'job-1');
+
+      expect(recruitmentStage.findMany).toHaveBeenCalledWith({
+        where: { jobId: 'job-1' },
+        orderBy: { order: 'asc' },
+      });
+      expect(result).toEqual([{ id: 'stage-1', name: 'Applied', order: 0 }]);
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(service.listStages('org-1', 'job-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('replaceStages', () => {
+    it('replaces the stage list wholesale for a job scoped to the caller org', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.findMany.mockResolvedValue([
+        { id: 'stage-1', name: 'Applied', order: 0 },
+        { id: 'stage-2', name: 'Interview', order: 1 },
+      ]);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      const result = await service.replaceStages('org-1', 'job-1', {
+        stages: ['Applied', 'Interview'],
+      });
+
+      expect(recruitmentStage.deleteMany).toHaveBeenCalledWith({
+        where: { jobId: 'job-1' },
+      });
+      expect(recruitmentStage.createMany).toHaveBeenCalledWith({
+        data: [
+          { jobId: 'job-1', name: 'Applied', order: 0 },
+          { jobId: 'job-1', name: 'Interview', order: 1 },
+        ],
+      });
+      expect(result).toEqual([
+        { id: 'stage-1', name: 'Applied', order: 0 },
+        { id: 'stage-2', name: 'Interview', order: 1 },
+      ]);
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job, without touching stages', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(
+        service.replaceStages('org-1', 'job-1', { stages: ['Applied'] }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('applyTemplate', () => {
+    it("copies the template's stages, ordered, into the job's own RecruitmentStage rows", async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.findMany.mockResolvedValue([
+        { id: 'stage-1', name: 'Applied', order: 0 },
+        { id: 'stage-2', name: 'Interview', order: 1 },
+      ]);
+      const pipelineTemplatesService = createPipelineTemplatesServiceMock();
+      (pipelineTemplatesService.getOne as jest.Mock).mockResolvedValue({
+        id: 'template-1',
+        organizationId: 'org-1',
+        name: 'Standard Pipeline',
+        stages: [
+          { id: 's2', name: 'Interview', order: 1 },
+          { id: 's1', name: 'Applied', order: 0 },
+        ],
+      });
+      const service = new JobsService(prisma, pipelineTemplatesService);
+
+      await service.applyTemplate('org-1', 'job-1', {
+        pipelineTemplateId: 'template-1',
+      });
+
+      expect(pipelineTemplatesService.getOne).toHaveBeenCalledWith(
+        'org-1',
+        'template-1',
+      );
+      expect(recruitmentStage.createMany).toHaveBeenCalledWith({
+        data: [
+          { jobId: 'job-1', name: 'Applied', order: 0 },
+          { jobId: 'job-1', name: 'Interview', order: 1 },
+        ],
+      });
+    });
+
+    it('propagates NotFoundException from a cross-tenant or nonexistent template', async () => {
+      const { prisma, job, recruitmentStage } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      const pipelineTemplatesService = createPipelineTemplatesServiceMock();
+      (pipelineTemplatesService.getOne as jest.Mock).mockRejectedValue(
+        new NotFoundException('Pipeline template not found.'),
+      );
+      const service = new JobsService(prisma, pipelineTemplatesService);
+
+      await expect(
+        service.applyTemplate('org-1', 'job-1', {
+          pipelineTemplateId: 'template-1',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {
+      const { prisma, job } = createPrismaMock();
+      job.findFirst.mockResolvedValue(null);
+      const pipelineTemplatesService = createPipelineTemplatesServiceMock();
+      const service = new JobsService(prisma, pipelineTemplatesService);
+
+      await expect(
+        service.applyTemplate('org-1', 'job-1', {
+          pipelineTemplateId: 'template-1',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(pipelineTemplatesService.getOne).not.toHaveBeenCalled();
     });
   });
 });

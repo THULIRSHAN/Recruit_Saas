@@ -73,13 +73,18 @@ describe('JobsController (e2e)', () => {
     await grantPermission(recruiterRole.id, 'job:create');
     await grantPermission(recruiterRole.id, 'job:read');
     await grantPermission(recruiterRole.id, 'job:update');
+    await grantPermission(recruiterRole.id, 'pipeline:manage');
   });
 
   afterAll(async () => {
-    // Job.organization has no onDelete: Cascade (unlike, e.g., Invitation),
-    // so Job rows must be deleted before their Organization or the FK
-    // constraint rejects the delete.
+    // Job.organization and PipelineTemplate.organization both have no
+    // onDelete: Cascade, so these rows must be deleted before their
+    // Organization or the FK constraint rejects the delete.
+    // RecruitmentStage cascades from Job, so no separate cleanup needed.
     await prisma.job.deleteMany({
+      where: { organizationId: { in: orgIdsToClean } },
+    });
+    await prisma.pipelineTemplate.deleteMany({
       where: { organizationId: { in: orgIdsToClean } },
     });
     await prisma.user.deleteMany({
@@ -163,6 +168,21 @@ describe('JobsController (e2e)', () => {
       .send({
         title: 'Software Engineer',
         description: 'Build things.',
+        ...overrides,
+      });
+    return res.body.id as string;
+  }
+
+  async function createTemplate(
+    token: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/pipeline-templates')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Standard Pipeline',
+        stages: ['Applied', 'Interview'],
         ...overrides,
       });
     return res.body.id as string;
@@ -421,6 +441,183 @@ describe('JobsController (e2e)', () => {
         .patch('/api/v1/jobs/does-not-exist')
         .set('Authorization', `Bearer ${token}`)
         .send({ title: 'Senior Software Engineer' })
+        .expect(404);
+    });
+  });
+
+  describe('GET /jobs/:id/stages', () => {
+    it('returns the ordered stages for a job (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('StagesGetHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Applied', 'Interview'] });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toMatchObject([
+        { name: 'Applied', order: 0 },
+        { name: 'Interview', order: 1 },
+      ]);
+    });
+
+    it('returns an empty list for a job with no stages yet', async () => {
+      const orgId = await registerAndApproveOrg('StagesGetEmpty');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toEqual([]);
+    });
+
+    it('returns 404 for a cross-tenant job', async () => {
+      const orgAId = await registerAndApproveOrg('StagesGetCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createJob(tokenA);
+
+      const orgBId = await registerAndApproveOrg('StagesGetCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .expect(404);
+    });
+  });
+
+  describe('PATCH /jobs/:id/stages', () => {
+    it('replaces the stage list wholesale (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('StagesPatchHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: ['Screening', 'Offer'] })
+        .expect(200);
+
+      expect(res.body).toMatchObject([
+        { name: 'Screening', order: 0 },
+        { name: 'Offer', order: 1 },
+      ]);
+    });
+
+    it('rejects an empty stages array with 400', async () => {
+      const orgId = await registerAndApproveOrg('StagesPatchInvalid');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stages: [] })
+        .expect(400);
+    });
+
+    it('rejects a role without pipeline:manage (e.g. Interviewer) with 403', async () => {
+      const orgId = await registerAndApproveOrg('StagesPatchForbidden');
+      const recruiterToken = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(recruiterToken);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .send({ stages: ['Screening'] })
+        .expect(403);
+    });
+
+    it('returns 404 for a cross-tenant job, without modifying its stages', async () => {
+      const orgAId = await registerAndApproveOrg('StagesPatchCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createJob(tokenA);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ stages: ['Applied'] });
+
+      const orgBId = await registerAndApproveOrg('StagesPatchCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .send({ stages: ['Hijacked'] })
+        .expect(404);
+
+      const stages = await prisma.recruitmentStage.findMany({
+        where: { jobId },
+      });
+      expect(stages.map((s) => s.name)).toEqual(['Applied']);
+    });
+  });
+
+  describe('POST /jobs/:id/stages/apply-template', () => {
+    it("copies the template's stages into the job (happy path)", async () => {
+      const orgId = await registerAndApproveOrg('ApplyTemplateHappy');
+      const token = await addStaffAndLogin(orgId, 'RECRUITER');
+      const jobId = await createJob(token);
+      const templateId = await createTemplate(token, {
+        stages: ['Applied', 'Screening', 'Offer'],
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/stages/apply-template`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ pipelineTemplateId: templateId })
+        .expect(201);
+
+      expect(res.body).toMatchObject([
+        { name: 'Applied', order: 0 },
+        { name: 'Screening', order: 1 },
+        { name: 'Offer', order: 2 },
+      ]);
+    });
+
+    it('returns 404 when the template belongs to a different org', async () => {
+      const orgAId = await registerAndApproveOrg('ApplyTemplateCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const templateId = await createTemplate(tokenA);
+
+      const orgBId = await registerAndApproveOrg('ApplyTemplateCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+      const jobId = await createJob(tokenB);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/stages/apply-template`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .send({ pipelineTemplateId: templateId })
+        .expect(404);
+
+      const stages = await prisma.recruitmentStage.findMany({
+        where: { jobId },
+      });
+      expect(stages).toHaveLength(0);
+    });
+
+    it('returns 404 for a cross-tenant job', async () => {
+      const orgAId = await registerAndApproveOrg('ApplyTemplateJobCrossA');
+      const tokenA = await addStaffAndLogin(orgAId, 'RECRUITER');
+      const jobId = await createJob(tokenA);
+
+      const orgBId = await registerAndApproveOrg('ApplyTemplateJobCrossB');
+      const tokenB = await addStaffAndLogin(orgBId, 'RECRUITER');
+      const templateId = await createTemplate(tokenB);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/stages/apply-template`)
+        .set('Authorization', `Bearer ${tokenB}`)
+        .send({ pipelineTemplateId: templateId })
         .expect(404);
     });
   });
