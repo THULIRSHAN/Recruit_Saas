@@ -45,6 +45,9 @@ jobs:
       BCRYPT_SALT_ROUNDS: 4
       EMAIL_VERIFICATION_TTL_HOURS: 24
       PASSWORD_RESET_TTL_MINUTES: 60
+      # test/jest-e2e.setup.ts overrides this to false for the e2e step
+      # itself; kept true here to match the documented default everywhere else.
+      THROTTLE_ENABLED: true
 
     steps:
       - name: Checkout

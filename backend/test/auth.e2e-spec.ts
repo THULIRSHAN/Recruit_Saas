@@ -427,4 +427,33 @@ describe('AuthController (e2e)', () => {
         .expect(400);
     });
   });
+
+  describe('rate limiting', () => {
+    // Every other test in this file runs with THROTTLE_ENABLED=false (see
+    // jest-e2e.setup.ts) precisely so realistic-but-rapid legitimate test
+    // traffic doesn't trip it -- this is the one place that deliberately
+    // re-enables it, to prove the guard is actually wired up and blocking.
+    it('blocks login after exceeding the per-IP limit (5 per 60s)', async () => {
+      process.env.THROTTLE_ENABLED = 'true';
+      try {
+        const user = await createCandidateWithPassword(
+          'throttle',
+          'password123',
+        );
+
+        for (let i = 0; i < 5; i++) {
+          await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({ email: user.email, password: 'wrong-password' });
+        }
+
+        await request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ email: user.email, password: 'wrong-password' })
+          .expect(429);
+      } finally {
+        process.env.THROTTLE_ENABLED = 'false';
+      }
+    });
+  });
 });
