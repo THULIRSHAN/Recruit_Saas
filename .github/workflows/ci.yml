@@ -38,6 +38,11 @@ jobs:
       BACKEND_PORT: 3001
       FRONTEND_PORT: 3000
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      # CI-only secret -- signs test JWTs, never used outside this workflow.
+      JWT_ACCESS_SECRET: ci-test-secret-not-used-anywhere-real
+      ACCESS_TOKEN_TTL: 15m
+      REFRESH_TOKEN_TTL_DAYS: 7
+      BCRYPT_SALT_ROUNDS: 4
 
     steps:
       - name: Checkout

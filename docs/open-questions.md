@@ -1,6 +1,6 @@
 # Open Questions & Ambiguous Requirements
 
-Status: **RESOLVED 2026-09-03** — all ten items below accepted as the stated recommendation, confirmed by the project owner in lieu of a full team meeting. Kept as the running log per the "How to Resolve These" section; revisit any individual item if it turns out wrong once the relevant phase is actually built.
+Status: **RESOLVED** (Q1–Q10 on 2026-09-03, Q11–Q12 on 2026-09-04) — all items below accepted as the stated recommendation, confirmed by the project owner in lieu of a full team meeting. Kept as the running log per the "How to Resolve These" section; revisit any individual item if it turns out wrong once the relevant phase is actually built.
 
 | # | Question | Where it matters | Decided |
 |---|---|---|---|
@@ -14,6 +14,8 @@ Status: **RESOLVED 2026-09-03** — all ten items below accepted as the stated r
 | **Q8** | File storage: AWS S3 or Cloudinary? | `decisions/ADR-004-file-storage-provider.md`, `deployment.md` §4 | **Decided:** Cloudinary for MVP. |
 | **Q9** | Frontend hosting: Vercel vs. containerized alongside backend? | `deployment.md` §4 | **Decided:** Containerized alongside the backend via the dev/prod Docker Compose stack (consistent with `deployment.md` §2's docker-compose design); revisit if a hosting constraint later favors Vercel. |
 | **Q10** | Is Subscriptions/Payments in scope for the MVP demo, or can it be stubbed (single free plan, no real Stripe checkout flow) until later? | `team-plan.md` §7 (MVP scope) | **Decided:** Stubbed for MVP — single free plan, no real Stripe checkout flow until M14. |
+| **Q11** | `authorization.md` §2 states "every role except SUPER_ADMIN is organization-scoped" (assigned via `UserOrganizationRole`), but a Candidate applies across any number of organizations without being a member of any of them — the schema has no way to give a Candidate an org-scoped role, and none of the candidate-owned tables (`CandidateProfile`, `Application`, etc.) are org-scoped. Documentation bug, flagged per `CLAUDE.md`'s doc-conflict rule rather than picked silently. | `authorization.md` §2, `database.md` (`User`/`UserOrganizationRole`), M3/M4 (Auth/RBAC) | **Decided:** CANDIDATE is implicit for any authenticated `User` — no `UserOrganizationRole` row is ever created for it. The seeded `CANDIDATE` `Role`/`Permission` rows (M2.3) remain catalog/documentation data only. Candidate-owned actions are authorized via ownership checks (`userId` matches the resource), not a role lookup — the same pattern `SUPER_ADMIN` already uses via `User.isSuperAdmin` instead of a role row. |
+| **Q12** | No email/SMTP provider has been chosen (no ADR exists), but `authentication.md` requires emailing verification and password-reset links starting in M3. | `authentication.md` §3, `security.md` §9 (SMTP credentials) | **Decided:** Stub for now — verification/reset links are logged via the server logger, not actually emailed, until the team picks a provider. Real email delivery is a separate future ticket, not a blocker for M3. |
 
 ## Risks (separate from the above — things to watch, not decisions to make now)
 

@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { config } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -10,6 +12,18 @@ async function bootstrap() {
   config({ path: path.resolve(process.cwd(), '../.env'), quiet: true });
 
   const app = await NestFactory.create(AppModule);
+  app.use(cookieParser());
+  // whitelist: strip unknown properties instead of erroring, so DTOs are the
+  // single source of truth for accepted fields (CLAUDE.md rule 5).
+  // forbidNonWhitelisted: reject requests carrying fields no DTO declares,
+  // rather than silently dropping them -- surfaces client bugs immediately.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
   const port = process.env.BACKEND_PORT ?? 3001;
   await app.listen(port);
 }
