@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
+import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
 @Module({
+  controllers: [AuthController],
   imports: [
     JwtModule.registerAsync({
       useFactory: () => {

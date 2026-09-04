@@ -45,6 +45,11 @@ enum EvaluationRecommendation {
   STRONG_NO
 }
 
+enum VerificationTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 model User {
   id            String   @id @default(cuid())
   email         String   @unique
@@ -55,12 +60,13 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  orgRoles         UserOrganizationRole[]
-  candidateProfile CandidateProfile?
-  refreshTokens    RefreshToken[]
-  notifications    Notification[]
-  applications     Application[]          @relation("CandidateApplications")
-  panelMemberships InterviewPanelMember[]
+  orgRoles           UserOrganizationRole[]
+  candidateProfile   CandidateProfile?
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+  notifications      Notification[]
+  applications       Application[]          @relation("CandidateApplications")
+  panelMemberships   InterviewPanelMember[]
 
   @@index([email])
 }
@@ -76,6 +82,25 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// Single-use tokens for both email verification and password reset (see
+// docs/open-questions.md Q12 -- database.md's original schema proposal
+// never accounted for either flow). Same hashed-token pattern as
+// RefreshToken: only the hash is stored, the raw value is only ever
+// logged/emailed once at creation time.
+model VerificationToken {
+  id        String                   @id @default(cuid())
+  userId    String
+  tokenHash String                   @unique
+  purpose   VerificationTokenPurpose
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime                 @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
 }
 
 model Organization {

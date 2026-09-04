@@ -43,6 +43,8 @@ jobs:
       ACCESS_TOKEN_TTL: 15m
       REFRESH_TOKEN_TTL_DAYS: 7
       BCRYPT_SALT_ROUNDS: 4
+      EMAIL_VERIFICATION_TTL_HOURS: 24
+      PASSWORD_RESET_TTL_MINUTES: 60
 
     steps:
       - name: Checkout
