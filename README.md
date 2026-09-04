@@ -18,8 +18,9 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 
 ## Status
 
-Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q12).
-Phase 2/3/4 (Project Setup, Database, Auth, RBAC) — M1 (Project Skeleton), M2 (Database Foundation), M3 (Authentication), and M4 (RBAC + Multi-tenancy) all complete as of 2026-09-04. M5 (Organizations) next -- the first real consumer of M4's TenantGuard/PermissionsGuard.
+Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q16).
+Phase 2/3/4 (Project Setup, Database, Auth, RBAC) — M1 (Project Skeleton), M2 (Database Foundation), M3 (Authentication), and M4 (RBAC + Multi-tenancy) all complete as of 2026-09-04.
+Phase 5 (Organizations) — M5 complete as of 2026-09-04: organization self-registration + Super Admin approve/reject/list (REQ-AUTH-002/003), self-service org settings (`GET`/`PATCH /organizations/me`), and staff invitations, both the create side (`POST /organizations/me/invitations`) and accept side (`POST /invitations/:token/accept`, REQ-AUTH-008). First real consumer of M4's PermissionsGuard (including its `reVerify` DB re-check for sensitive actions) — `TenantGuard`'s first consumer remains M6 (Job model). M6 (Jobs) next.
 
 ## Running Locally
 
