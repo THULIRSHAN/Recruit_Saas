@@ -31,6 +31,22 @@ describe('AuthController (e2e)', () => {
 
     prisma = app.get(PrismaService);
     authService = app.get(AuthService);
+
+    // This file's own fixture data -- do NOT rely on database.e2e-spec.ts's
+    // seed having already run against the shared real DB. Jest doesn't
+    // guarantee cross-file execution order (parallel workers), so a test
+    // here that happened to pass because another file's beforeAll ran
+    // first would be a latent flake, not a real guarantee.
+    await prisma.role.upsert({
+      where: { key: 'RECRUITER' },
+      update: {},
+      create: { key: 'RECRUITER', name: 'Recruiter' },
+    });
+    await prisma.role.upsert({
+      where: { key: 'COMPANY_OWNER' },
+      update: {},
+      create: { key: 'COMPANY_OWNER', name: 'Company Owner' },
+    });
   });
 
   afterAll(async () => {
