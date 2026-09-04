@@ -50,10 +50,22 @@ export class PermissionsGuard implements CanActivate {
     // lookup, rather than bypassing the check entirely -- a Super Admin
     // still doesn't get org-scoped permissions (job:create etc.) they were
     // never granted, only the platform-level ones seeded onto SUPER_ADMIN.
-    const roleKeys = isSuperAdmin ? [...roles, 'SUPER_ADMIN'] : roles;
-    if (roleKeys.length === 0) {
-      throw new ForbiddenException(FORBIDDEN_MESSAGE);
-    }
+    //
+    // CANDIDATE is likewise implicit for every authenticated user
+    // (docs/open-questions.md Q11: no UserOrganizationRole row is ever
+    // created for it) -- and per Q3/REQ-AUTH-008, the same login can be
+    // both org staff and a candidate, so this is unconditional, not just
+    // a fallback for users with no org roles. This is what makes
+    // candidate-facing endpoints (application:create, candidateProfile:
+    // update, ...) usable via the same centralized @RequirePermission()
+    // mechanism as everything else (CLAUDE.md rule 1) instead of a
+    // scattered if-check -- the *resource-level* restriction (only your
+    // own profile/application) is still a required second layer via an
+    // ownership check in the service, same pattern as Interviewer's
+    // ownership-scoped permissions (docs/authorization.md §3).
+    const roleKeys = isSuperAdmin
+      ? [...roles, 'SUPER_ADMIN', 'CANDIDATE']
+      : [...roles, 'CANDIDATE'];
 
     const grant = await this.prisma.rolePermission.findFirst({
       where: {

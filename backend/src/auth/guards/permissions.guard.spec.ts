@@ -52,9 +52,10 @@ describe('PermissionsGuard', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('forbids a user with no roles and no isSuperAdmin', async () => {
+  it('forbids a user with no org roles and no isSuperAdmin for an org-scoped permission (CANDIDATE alone does not grant it)', async () => {
     const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
+    (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
     const guard = new PermissionsGuard(reflector, prisma);
     const user: AccessTokenPayload = {
       sub: 'user-1',
@@ -66,7 +67,15 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
-    expect(prisma.rolePermission.findFirst).not.toHaveBeenCalled();
+    // Still queried -- CANDIDATE is implicit for every authenticated user
+    // (docs/open-questions.md Q19), so this is a real "not granted" check,
+    // not an early exit.
+    expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+      where: {
+        role: { key: { in: ['CANDIDATE'] } },
+        permission: { key: 'job:create' },
+      },
+    });
   });
 
   it('allows a role that grants the required permission', async () => {
@@ -87,8 +96,32 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
     expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
       where: {
-        role: { key: { in: ['RECRUITER'] } },
+        role: { key: { in: ['RECRUITER', 'CANDIDATE'] } },
         permission: { key: 'job:create' },
+      },
+    });
+  });
+
+  it('grants a candidate-only permission (e.g. application:create) to any authenticated user, including org staff (docs/open-questions.md Q19)', async () => {
+    const reflector = createReflectorMock({ permission: 'application:create' });
+    const prisma = createPrismaMock();
+    (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
+      roleId: 'r1',
+      permissionId: 'p1',
+    });
+    const guard = new PermissionsGuard(reflector, prisma);
+    const user: AccessTokenPayload = {
+      sub: 'user-1',
+      orgId: 'org-1',
+      roles: ['RECRUITER'],
+      isSuperAdmin: false,
+    };
+
+    await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
+    expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+      where: {
+        role: { key: { in: ['RECRUITER', 'CANDIDATE'] } },
+        permission: { key: 'application:create' },
       },
     });
   });
@@ -130,7 +163,7 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
     expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
       where: {
-        role: { key: { in: ['SUPER_ADMIN'] } },
+        role: { key: { in: ['SUPER_ADMIN', 'CANDIDATE'] } },
         permission: { key: 'organization:approve' },
       },
     });
@@ -184,7 +217,7 @@ describe('PermissionsGuard', () => {
       });
       expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
         where: {
-          role: { key: { in: ['SUPER_ADMIN'] } },
+          role: { key: { in: ['SUPER_ADMIN', 'CANDIDATE'] } },
           permission: { key: 'organization:approve' },
         },
       });
@@ -199,6 +232,7 @@ describe('PermissionsGuard', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         isSuperAdmin: false,
       });
+      (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
       const guard = new PermissionsGuard(reflector, prisma);
       const user: AccessTokenPayload = {
         sub: 'admin-1',
@@ -210,7 +244,14 @@ describe('PermissionsGuard', () => {
       await expect(
         guard.canActivate(createContext(user)),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(prisma.rolePermission.findFirst).not.toHaveBeenCalled();
+      // CANDIDATE alone doesn't grant a platform-level permission -- still
+      // a real DB check, not an early exit (docs/open-questions.md Q19).
+      expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+        where: {
+          role: { key: { in: ['CANDIDATE'] } },
+          permission: { key: 'organization:approve' },
+        },
+      });
     });
 
     it('throws Unauthorized if the user row no longer exists', async () => {
