@@ -7,7 +7,11 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
-RUN npm ci
+# --ignore-scripts: installing the whole workspace tree (required for npm
+# workspaces to resolve/hoist correctly) would otherwise run backend's
+# postinstall (`prisma generate`), which this image never needs and whose
+# schema isn't even copied into this build context.
+RUN npm ci --ignore-scripts
 
 FROM deps AS build
 COPY frontend frontend
