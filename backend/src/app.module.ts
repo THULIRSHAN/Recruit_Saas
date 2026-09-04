@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
+import { TenantGuard } from './auth/guards/tenant.guard';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -41,6 +42,11 @@ import { PrismaModule } from './prisma/prisma.module';
     // not policy" principle). Runs after JwtAuthGuard, which populates
     // req.user that this guard depends on.
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // No-ops unless a route carries @RequireTenant(...) -- same reasoning
+    // as PermissionsGuard. Defense-in-depth only (multi-tenancy.md §3):
+    // the service layer's own organizationId filter is the authoritative
+    // check, this just 404s a cross-tenant request before the handler runs.
+    { provide: APP_GUARD, useClass: TenantGuard },
   ],
 })
 export class AppModule {}
