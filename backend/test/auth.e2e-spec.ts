@@ -571,4 +571,103 @@ describe('AuthController (e2e)', () => {
       });
     });
   });
+
+  describe('POST /auth/switch-org', () => {
+    it('switches to a specific org membership and reflects it in the new token', async () => {
+      const user = await createCandidateWithPassword(
+        'switch-ok',
+        'password123',
+      );
+      const org1 = await prisma.organization.create({
+        data: { name: `Switch Org A ${Date.now()}` },
+      });
+      const org2 = await prisma.organization.create({
+        data: { name: `Switch Org B ${Date.now()}` },
+      });
+      const ownerRole = await prisma.role.findUniqueOrThrow({
+        where: { key: 'COMPANY_OWNER' },
+      });
+      await prisma.userOrganizationRole.createMany({
+        data: [
+          { userId: user.id, organizationId: org1.id, roleId: ownerRole.id },
+          { userId: user.id, organizationId: org2.id, roleId: ownerRole.id },
+        ],
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+      const loginCookie = loginRes.headers['set-cookie'] as unknown as string[];
+
+      // Ambiguous at login (2 orgs) -- confirms the starting point.
+      const meBeforeRes = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${loginRes.body.accessToken as string}`)
+        .expect(200);
+      expect(meBeforeRes.body).toMatchObject({ orgId: null, roles: [] });
+
+      const switchRes = await request(app.getHttpServer())
+        .post('/auth/switch-org')
+        .set('Cookie', loginCookie)
+        .send({ organizationId: org2.id })
+        .expect(200);
+      const switchCookie = switchRes.headers[
+        'set-cookie'
+      ] as unknown as string[];
+
+      const meAfterRes = await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${switchRes.body.accessToken as string}`)
+        .expect(200);
+      expect(meAfterRes.body).toMatchObject({
+        sub: user.id,
+        orgId: org2.id,
+        roles: ['COMPANY_OWNER'],
+      });
+
+      // The pre-switch refresh token was rotated away by switch-org.
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', loginCookie)
+        .expect(401);
+      // The post-switch one is live.
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', switchCookie)
+        .expect(200);
+
+      await prisma.userOrganizationRole.deleteMany({
+        where: { userId: user.id },
+      });
+      await prisma.organization.deleteMany({
+        where: { id: { in: [org1.id, org2.id] } },
+      });
+    });
+
+    it('returns 404 (not 403) when switching to an org the user is not a member of', async () => {
+      const user = await createCandidateWithPassword(
+        'switch-not-member',
+        'password123',
+      );
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+      const cookie = loginRes.headers['set-cookie'] as unknown as string[];
+
+      await request(app.getHttpServer())
+        .post('/auth/switch-org')
+        .set('Cookie', cookie)
+        .send({ organizationId: 'some-org-i-am-not-in' })
+        .expect(404);
+    });
+
+    it('rejects a request with no refresh cookie', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/switch-org')
+        .send({ organizationId: 'irrelevant' })
+        .expect(401);
+    });
+  });
 });

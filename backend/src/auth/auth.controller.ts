@@ -19,6 +19,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SwitchOrgDto } from './dto/switch-org.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import {
   REFRESH_TOKEN_COOKIE,
@@ -95,6 +96,32 @@ export class AuthController {
     await this.authService.logout(presentedToken);
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: REFRESH_TOKEN_COOKIE_PATH });
     return { loggedOut: true };
+  }
+
+  // Public with respect to the access token guard, same reasoning as
+  // refresh -- authenticated by the refresh cookie, which remains valid
+  // even if the access token has since expired (no need to refresh first
+  // just to then switch org in a second round trip).
+  @Public()
+  @Post('switch-org')
+  @HttpCode(HttpStatus.OK)
+  async switchOrg(
+    @Body() dto: SwitchOrgDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const presentedToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as
+      string | undefined;
+    if (typeof presentedToken !== 'string') {
+      throw new UnauthorizedException('Missing refresh token.');
+    }
+
+    const { accessToken, refreshToken } = await this.authService.switchOrg(
+      presentedToken,
+      dto,
+    );
+    res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, refreshCookieOptions());
+    return { accessToken };
   }
 
   @Public()

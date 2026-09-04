@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -402,6 +403,71 @@ describe('AuthService', () => {
       await expect(service.refresh('raced-token')).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('switchOrg', () => {
+    it('re-issues a token scoped to the requested org when the user is a member', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([
+        { organizationId: 'org-2', role: { key: 'COMPANY_OWNER' } },
+      ]);
+      const jwt = {
+        signAsync: jest.fn().mockResolvedValue('signed.jwt.token'),
+      } as unknown as JwtService;
+      const service = new AuthService(prisma, jwt);
+
+      const result = await service.switchOrg('raw-refresh-token', {
+        organizationId: 'org-2',
+      });
+
+      expect(jwt.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-2',
+          roles: ['COMPANY_OWNER'],
+        }) as object,
+      );
+      expect(result.accessToken).toBe('signed.jwt.token');
+    });
+
+    it('returns a 404 (not 403) when the user is not a member of the requested org', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([]);
+      const service = createService(prisma);
+
+      await expect(
+        service.switchOrg('raw-refresh-token', {
+          organizationId: 'not-my-org',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('rejects an invalid or expired refresh token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue(null);
+      const service = createService(prisma);
+
+      await expect(
+        service.switchOrg('bogus', { organizationId: 'org-1' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 

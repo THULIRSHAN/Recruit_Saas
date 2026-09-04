@@ -4,6 +4,7 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -14,15 +15,20 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SwitchOrgDto } from './dto/switch-org.dto';
 
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired verification token.';
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
 const INVALID_REFRESH_TOKEN_MESSAGE = 'Invalid or expired refresh token.';
+// 404, not 403, per docs/multi-tenancy.md §5 -- don't confirm an org ID
+// exists to a caller who isn't a member of it.
+const ORG_NOT_FOUND_MESSAGE = 'Organization not found.';
 
 export interface AccessTokenPayload {
   sub: string;
-  // Org-scoped role keys/orgId are always empty/null until M4 (RBAC) and
-  // M5 (Organizations) exist -- there is no membership to reflect yet.
+  // null/[] for a pure candidate (no org memberships) or a user belonging
+  // to 2+ orgs (ambiguous -- call /auth/switch-org to pick one). Populated
+  // only when membership is unambiguous -- see resolveDefaultOrgContext.
   orgId: string | null;
   roles: string[];
   isSuperAdmin: boolean;
@@ -221,6 +227,42 @@ export class AuthService {
   }
 
   async refresh(rawToken: string): Promise<TokenPair> {
+    const user = await this.claimRefreshToken(rawToken);
+    return this.issueTokenPair(user);
+  }
+
+  // Per docs/authentication.md §5: re-issues a token scoped to a different
+  // org the caller is a member of, without a full re-login. Authenticated
+  // by the refresh cookie (same trust model as refresh() itself, and
+  // available even if the access token has since expired) rather than
+  // requiring a fresh access token -- see the @Public() note on the
+  // controller method.
+  async switchOrg(
+    rawRefreshToken: string,
+    dto: SwitchOrgDto,
+  ): Promise<TokenPair> {
+    const user = await this.claimRefreshToken(rawRefreshToken);
+
+    const memberships = await this.prisma.userOrganizationRole.findMany({
+      where: { userId: user.id, organizationId: dto.organizationId },
+      include: { role: true },
+    });
+    if (memberships.length === 0) {
+      throw new NotFoundException(ORG_NOT_FOUND_MESSAGE);
+    }
+
+    const roles = memberships.map((m) => m.role.key);
+    return this.issueTokenPair(user, { orgId: dto.organizationId, roles });
+  }
+
+  // Shared by refresh() and switchOrg(): validate the presented refresh
+  // token and atomically rotate it (revoke), returning its owner. Guarding
+  // the revoke on revokedAt: null so a concurrent replay of the same token
+  // can't rotate twice -- the second request's updateMany affects 0 rows
+  // and is rejected. This is also what makes a stolen-and-reused token
+  // detectable (docs/authentication.md §2): once either party rotates it,
+  // the other's next attempt fails.
+  private async claimRefreshToken(rawToken: string) {
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.hashOpaqueToken(rawToken) },
       include: { user: true },
@@ -230,11 +272,6 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
     }
 
-    // Guard the revoke on revokedAt: null so replaying the same refresh
-    // token concurrently can't rotate twice -- the second request's
-    // updateMany affects 0 rows and is rejected. This is also what makes a
-    // stolen-and-reused token detectable (docs/authentication.md §2): once
-    // either party rotates it, the other's next attempt fails.
     const claim = await this.prisma.refreshToken.updateMany({
       where: { id: record.id, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -243,7 +280,7 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
     }
 
-    return this.issueTokenPair(record.user);
+    return record.user;
   }
 
   // Idempotent: a missing or already-invalid token still "succeeds" (no
