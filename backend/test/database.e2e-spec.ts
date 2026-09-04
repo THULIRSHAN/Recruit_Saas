@@ -9,6 +9,10 @@ import { PrismaService } from '../src/prisma/prisma.service';
 const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
   CANDIDATE: [
     'application:create',
+    // Q21 (docs/open-questions.md): not in authorization.md §3's original
+    // table, but REQ-APP-001 requires a candidate to be able to read back
+    // their own application.
+    'application:read',
     'application:withdraw',
     'candidateProfile:update',
     'offer:respond',

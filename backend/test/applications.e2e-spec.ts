@@ -1,0 +1,473 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { AuthService } from '../src/auth/auth.service';
+import { PrismaService } from '../src/prisma/prisma.service';
+
+describe('ApplicationsController (e2e)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let authService: AuthService;
+
+  const orgIdsToClean: string[] = [];
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    await app.init();
+
+    prisma = app.get(PrismaService);
+    authService = app.get(AuthService);
+
+    // This file's own fixture -- see auth.e2e-spec.ts for why (Jest doesn't
+    // guarantee cross-file seed ordering against the shared real DB).
+    await prisma.role.upsert({
+      where: { key: 'COMPANY_OWNER' },
+      update: {},
+      create: { key: 'COMPANY_OWNER', name: 'Company Owner' },
+    });
+    const recruiterRole = await prisma.role.upsert({
+      where: { key: 'RECRUITER' },
+      update: {},
+      create: { key: 'RECRUITER', name: 'Recruiter' },
+    });
+    const candidateRole = await prisma.role.upsert({
+      where: { key: 'CANDIDATE' },
+      update: {},
+      create: { key: 'CANDIDATE', name: 'Candidate' },
+    });
+    const superAdminRole = await prisma.role.upsert({
+      where: { key: 'SUPER_ADMIN' },
+      update: {},
+      create: { key: 'SUPER_ADMIN', name: 'Super Admin', isPlatformRole: true },
+    });
+
+    async function grantPermission(roleId: string, key: string) {
+      const permission = await prisma.permission.upsert({
+        where: { key },
+        update: {},
+        create: { key },
+      });
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
+        update: {},
+        create: { roleId, permissionId: permission.id },
+      });
+    }
+
+    await grantPermission(superAdminRole.id, 'organization:approve');
+    await grantPermission(recruiterRole.id, 'job:create');
+    await grantPermission(recruiterRole.id, 'job:read');
+    await grantPermission(recruiterRole.id, 'job:publish');
+    await grantPermission(recruiterRole.id, 'pipeline:manage');
+    await grantPermission(candidateRole.id, 'application:create');
+    await grantPermission(candidateRole.id, 'application:read');
+    await grantPermission(candidateRole.id, 'application:withdraw');
+    await grantPermission(candidateRole.id, 'candidateProfile:update');
+  });
+
+  afterAll(async () => {
+    // Application has no onDelete: Cascade from Job (its own FK, not
+    // shown here, but Job.organization has none either, established
+    // pattern) -- delete children before their parents so the FK
+    // constraints don't reject the Organization delete.
+    await prisma.application.deleteMany({
+      where: { organizationId: { in: orgIdsToClean } },
+    });
+    await prisma.recruitmentStage.deleteMany({
+      where: { job: { organizationId: { in: orgIdsToClean } } },
+    });
+    await prisma.job.deleteMany({
+      where: { organizationId: { in: orgIdsToClean } },
+    });
+    await prisma.user.deleteMany({
+      where: { email: { contains: '@applications-e2e.test' } },
+    });
+    await prisma.organization.deleteMany({
+      where: { name: { contains: 'Org Applications E2E Test' } },
+    });
+    await app.close();
+  });
+
+  async function createSuperAdminAndLogin() {
+    const email = `super-${Date.now()}-${Math.random().toString(36).slice(2)}@applications-e2e.test`;
+    const passwordHash = await authService.hashPassword('password123');
+    await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName: 'Test Super Admin',
+        isSuperAdmin: true,
+        emailVerified: true,
+      },
+    });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
+  }
+
+  async function registerAndApproveOrg(namePrefix: string) {
+    const email = `${namePrefix}-owner-${Date.now()}@applications-e2e.test`;
+    const regRes = await request(app.getHttpServer())
+      .post('/api/v1/organizations')
+      .send({
+        organizationName: `Org Applications E2E Test ${namePrefix} ${Date.now()}`,
+        ownerFullName: 'Org Owner',
+        ownerEmail: email,
+        ownerPassword: 'password123',
+      });
+    const orgId = regRes.body.organization.id as string;
+    orgIdsToClean.push(orgId);
+
+    const adminToken = await createSuperAdminAndLogin();
+    await request(app.getHttpServer())
+      .post(`/api/v1/organizations/${orgId}/approve`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    return orgId;
+  }
+
+  async function addRecruiterAndLogin(orgId: string) {
+    const role = await prisma.role.findUniqueOrThrow({
+      where: { key: 'RECRUITER' },
+    });
+    const email = `recruiter-${Date.now()}-${Math.random().toString(36).slice(2)}@applications-e2e.test`;
+    const passwordHash = await authService.hashPassword('password123');
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName: 'Recruiter Person',
+        emailVerified: true,
+      },
+    });
+    await prisma.userOrganizationRole.create({
+      data: { userId: user.id, organizationId: orgId, roleId: role.id },
+    });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
+  }
+
+  async function createPublishedJob(
+    recruiterToken: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    const jobRes = await request(app.getHttpServer())
+      .post('/api/v1/jobs')
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .send({
+        title: 'Software Engineer',
+        description: 'Build things.',
+        ...overrides,
+      });
+    const jobId = jobRes.body.id as string;
+    await request(app.getHttpServer())
+      .patch(`/api/v1/jobs/${jobId}/stages`)
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .send({ stages: ['Applied', 'Interview'] });
+    await request(app.getHttpServer())
+      .post(`/api/v1/jobs/${jobId}/publish`)
+      .set('Authorization', `Bearer ${recruiterToken}`);
+    return jobId;
+  }
+
+  async function registerCandidateAndLogin(namePrefix: string) {
+    const email = `${namePrefix}-${Date.now()}@applications-e2e.test`;
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email, password: 'password123', fullName: 'Test Candidate' });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
+  }
+
+  async function uploadCv(candidateToken: string) {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/candidates/me/cvs')
+      .set('Authorization', `Bearer ${candidateToken}`)
+      .attach('file', Buffer.from('%PDF-1.4\n%mock cv'), 'resume.pdf');
+    return res.body.id as string;
+  }
+
+  describe('POST /applications', () => {
+    it('creates an ACTIVE application in the job’s first stage, using the primary CV (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('CreateHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CreateHappy');
+      await uploadCv(candidateToken);
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId, coverNote: 'I would love to join.' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({
+        status: 'ACTIVE',
+        coverNote: 'I would love to join.',
+        job: { id: jobId, organization: { id: orgId } },
+        stage: { name: 'Applied' },
+      });
+    });
+
+    it('uses an explicitly provided cvId instead of the primary CV', async () => {
+      const orgId = await registerAndApproveOrg('CreateExplicitCv');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken =
+        await registerCandidateAndLogin('CreateExplicitCv');
+      await uploadCv(candidateToken);
+      const secondCvId = await uploadCv(candidateToken);
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId, cvId: secondCvId })
+        .expect(201);
+
+      expect(res.body.cv.id).toBe(secondCvId);
+    });
+
+    it('returns 422 when the candidate has no CV and provides none', async () => {
+      const orgId = await registerAndApproveOrg('CreateNoCv');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CreateNoCv');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId })
+        .expect(422);
+    });
+
+    it('returns 422 when cvId does not belong to the caller', async () => {
+      const orgId = await registerAndApproveOrg('CreateForeignCv');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateTokenA =
+        await registerCandidateAndLogin('CreateForeignCvA');
+      const foreignCvId = await uploadCv(candidateTokenA);
+      const candidateTokenB =
+        await registerCandidateAndLogin('CreateForeignCvB');
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .send({ jobId, cvId: foreignCvId })
+        .expect(422);
+    });
+
+    it('returns 404 for a DRAFT job (not yet published)', async () => {
+      const orgId = await registerAndApproveOrg('CreateDraftJob');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobRes = await request(app.getHttpServer())
+        .post('/api/v1/jobs')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ title: 'Draft Job', description: 'Not published yet.' });
+      const candidateToken = await registerCandidateAndLogin('CreateDraftJob');
+      await uploadCv(candidateToken);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId: jobRes.body.id })
+        .expect(404);
+    });
+
+    it('returns 404 for a nonexistent job id', async () => {
+      const candidateToken = await registerCandidateAndLogin('CreateBadJobId');
+      await uploadCv(candidateToken);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId: 'does-not-exist' })
+        .expect(404);
+    });
+
+    it('returns 409 for a second active application to the same job', async () => {
+      const orgId = await registerAndApproveOrg('CreateDuplicate');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CreateDuplicate');
+      await uploadCv(candidateToken);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId })
+        .expect(409);
+    });
+
+    it('allows re-applying after withdrawing the previous application', async () => {
+      const orgId = await registerAndApproveOrg('CreateReapply');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CreateReapply');
+      await uploadCv(candidateToken);
+
+      const firstRes = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${firstRes.body.id}/withdraw`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId })
+        .expect(201);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .send({ jobId: 'irrelevant' })
+        .expect(401);
+    });
+  });
+
+  describe('GET /applications/me', () => {
+    it('lists only the caller’s own applications', async () => {
+      const orgId = await registerAndApproveOrg('ListMine');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateTokenA = await registerCandidateAndLogin('ListMineA');
+      await uploadCv(candidateTokenA);
+      await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .send({ jobId });
+      const candidateTokenB = await registerCandidateAndLogin('ListMineB');
+
+      const resA = await request(app.getHttpServer())
+        .get('/api/v1/applications/me')
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .expect(200);
+      expect(resA.body.data).toHaveLength(1);
+
+      const resB = await request(app.getHttpServer())
+        .get('/api/v1/applications/me')
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .expect(200);
+      expect(resB.body.data).toHaveLength(0);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/applications/me')
+        .expect(401);
+    });
+  });
+
+  describe('GET /applications/:id', () => {
+    it('returns 404 for another candidate’s application', async () => {
+      const orgId = await registerAndApproveOrg('GetOneCross');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateTokenA = await registerCandidateAndLogin('GetOneCrossA');
+      await uploadCv(candidateTokenA);
+      const appRes = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .send({ jobId });
+      const candidateTokenB = await registerCandidateAndLogin('GetOneCrossB');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/applications/${appRes.body.id}`)
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .expect(404);
+    });
+  });
+
+  describe('POST /applications/:id/withdraw', () => {
+    it('withdraws an ACTIVE application (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('WithdrawHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('WithdrawHappy');
+      await uploadCv(candidateToken);
+      const appRes = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appRes.body.id}/withdraw`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(201);
+      expect(res.body.status).toBe('WITHDRAWN');
+    });
+
+    it('returns 409 when withdrawing an already-withdrawn application', async () => {
+      const orgId = await registerAndApproveOrg('WithdrawTwice');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('WithdrawTwice');
+      await uploadCv(candidateToken);
+      const appRes = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ jobId });
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appRes.body.id}/withdraw`)
+        .set('Authorization', `Bearer ${candidateToken}`);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appRes.body.id}/withdraw`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(409);
+    });
+
+    it('returns 404 for another candidate’s application, without withdrawing it', async () => {
+      const orgId = await registerAndApproveOrg('WithdrawCross');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateTokenA = await registerCandidateAndLogin('WithdrawCrossA');
+      await uploadCv(candidateTokenA);
+      const appRes = await request(app.getHttpServer())
+        .post('/api/v1/applications')
+        .set('Authorization', `Bearer ${candidateTokenA}`)
+        .send({ jobId });
+      const candidateTokenB = await registerCandidateAndLogin('WithdrawCrossB');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${appRes.body.id}/withdraw`)
+        .set('Authorization', `Bearer ${candidateTokenB}`)
+        .expect(404);
+
+      const check = await prisma.application.findUniqueOrThrow({
+        where: { id: appRes.body.id as string },
+      });
+      expect(check.status).toBe('ACTIVE');
+    });
+  });
+});

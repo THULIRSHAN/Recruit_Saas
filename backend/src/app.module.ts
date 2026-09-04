@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ApplicationsModule } from './applications/applications.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
@@ -39,6 +40,7 @@ import { StorageModule } from './storage/storage.module';
     JobsModule,
     PipelineTemplatesModule,
     CandidatesModule,
+    ApplicationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -49,6 +49,10 @@ const HR_MANAGER_PERMISSIONS = [
 
 const CANDIDATE_PERMISSIONS = [
   'application:create',
+  // Not in docs/authorization.md §3's original table -- see
+  // docs/open-questions.md Q21 (a candidate obviously needs to view their
+  // own applications; REQ-APP-001 explicitly says so).
+  'application:read',
   'application:withdraw',
   'candidateProfile:update',
   'offer:respond',
