@@ -6,6 +6,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PermissionsGuard } from './permissions.guard';
 import type { AccessTokenPayload } from '../auth.service';
+import type { RequiredPermission } from '../decorators/require-permission.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function createContext(user?: AccessTokenPayload) {
@@ -17,17 +18,23 @@ function createContext(user?: AccessTokenPayload) {
   } as unknown as ExecutionContext;
 }
 
+function createReflectorMock(required: RequiredPermission | undefined) {
+  return {
+    getAllAndOverride: jest.fn().mockReturnValue(required),
+  } as unknown as Reflector;
+}
+
 function createPrismaMock() {
   return {
     rolePermission: { findFirst: jest.fn() },
+    user: { findUnique: jest.fn() },
+    userOrganizationRole: { findMany: jest.fn() },
   } as unknown as PrismaService;
 }
 
 describe('PermissionsGuard', () => {
   it('allows a route with no @RequirePermission() metadata', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue(undefined),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock(undefined);
     const prisma = createPrismaMock();
     const guard = new PermissionsGuard(reflector, prisma);
 
@@ -36,9 +43,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('throws Unauthorized if req.user is missing (JwtAuthGuard did not run first)', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('job:create'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
     const guard = new PermissionsGuard(reflector, prisma);
 
@@ -48,9 +53,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('forbids a user with no roles and no isSuperAdmin', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('job:create'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
     const guard = new PermissionsGuard(reflector, prisma);
     const user: AccessTokenPayload = {
@@ -67,9 +70,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('allows a role that grants the required permission', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('job:create'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
     (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
       roleId: 'r1',
@@ -93,9 +94,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('forbids a role that does not grant the required permission', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('job:create'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
     (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
     const guard = new PermissionsGuard(reflector, prisma);
@@ -112,9 +111,9 @@ describe('PermissionsGuard', () => {
   });
 
   it('treats isSuperAdmin as implicitly holding SUPER_ADMIN, not a blanket bypass', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('organization:approve'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({
+      permission: 'organization:approve',
+    });
     const prisma = createPrismaMock();
     (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
       roleId: 'r1',
@@ -138,9 +137,7 @@ describe('PermissionsGuard', () => {
   });
 
   it('still forbids a Super Admin for an org-scoped permission SUPER_ADMIN was never granted', async () => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue('job:create'),
-    } as unknown as Reflector;
+    const reflector = createReflectorMock({ permission: 'job:create' });
     const prisma = createPrismaMock();
     (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
     const guard = new PermissionsGuard(reflector, prisma);
@@ -154,5 +151,117 @@ describe('PermissionsGuard', () => {
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  describe('reVerify: true (docs/authorization.md §4 trust boundary)', () => {
+    it('re-reads isSuperAdmin from the database instead of trusting the token claim', async () => {
+      const reflector = createReflectorMock({
+        permission: 'organization:approve',
+        reVerify: true,
+      });
+      const prisma = createPrismaMock();
+      // Token claims isSuperAdmin: false (stale/tampered), but the DB says
+      // otherwise -- the DB value must win.
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        isSuperAdmin: true,
+      });
+      (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
+        roleId: 'r1',
+        permissionId: 'p1',
+      });
+      const guard = new PermissionsGuard(reflector, prisma);
+      const user: AccessTokenPayload = {
+        sub: 'admin-1',
+        orgId: null,
+        roles: [],
+        isSuperAdmin: false,
+      };
+
+      await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'admin-1' },
+        select: { isSuperAdmin: true },
+      });
+      expect(prisma.rolePermission.findFirst).toHaveBeenCalledWith({
+        where: {
+          role: { key: { in: ['SUPER_ADMIN'] } },
+          permission: { key: 'organization:approve' },
+        },
+      });
+    });
+
+    it('forbids when the DB no longer grants isSuperAdmin, even if the token still claims it', async () => {
+      const reflector = createReflectorMock({
+        permission: 'organization:approve',
+        reVerify: true,
+      });
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        isSuperAdmin: false,
+      });
+      const guard = new PermissionsGuard(reflector, prisma);
+      const user: AccessTokenPayload = {
+        sub: 'admin-1',
+        orgId: null,
+        roles: [],
+        isSuperAdmin: true,
+      };
+
+      await expect(
+        guard.canActivate(createContext(user)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.rolePermission.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('throws Unauthorized if the user row no longer exists', async () => {
+      const reflector = createReflectorMock({
+        permission: 'organization:approve',
+        reVerify: true,
+      });
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      const guard = new PermissionsGuard(reflector, prisma);
+      const user: AccessTokenPayload = {
+        sub: 'admin-1',
+        orgId: null,
+        roles: [],
+        isSuperAdmin: true,
+      };
+
+      await expect(
+        guard.canActivate(createContext(user)),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('re-reads org-scoped roles from the database when the user has an active org', async () => {
+      const reflector = createReflectorMock({
+        permission: 'job:create',
+        reVerify: true,
+      });
+      const prisma = createPrismaMock();
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        isSuperAdmin: false,
+      });
+      (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([
+        { role: { key: 'RECRUITER' } },
+      ]);
+      (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
+        roleId: 'r1',
+        permissionId: 'p1',
+      });
+      const guard = new PermissionsGuard(reflector, prisma);
+      const user: AccessTokenPayload = {
+        sub: 'user-1',
+        orgId: 'org-1',
+        roles: [],
+        isSuperAdmin: false,
+      };
+
+      await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
+      expect(prisma.userOrganizationRole.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', organizationId: 'org-1' },
+        include: { role: true },
+      });
+    });
   });
 });

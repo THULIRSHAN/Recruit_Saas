@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { AuthService } from '../src/auth/auth.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 describe('OrganizationsController (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let authService: AuthService;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -25,6 +27,7 @@ describe('OrganizationsController (e2e)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+    authService = app.get(AuthService);
 
     // This file's own fixture -- see auth.e2e-spec.ts for why (Jest doesn't
     // guarantee cross-file seed ordering against the shared real DB).
@@ -33,9 +36,42 @@ describe('OrganizationsController (e2e)', () => {
       update: {},
       create: { key: 'COMPANY_OWNER', name: 'Company Owner' },
     });
+    const superAdminRole = await prisma.role.upsert({
+      where: { key: 'SUPER_ADMIN' },
+      update: {},
+      create: { key: 'SUPER_ADMIN', name: 'Super Admin', isPlatformRole: true },
+    });
+    for (const key of ['organization:approve', 'organization:reject']) {
+      const permission = await prisma.permission.upsert({
+        where: { key },
+        update: {},
+        create: { key },
+      });
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId: superAdminRole.id,
+            permissionId: permission.id,
+          },
+        },
+        update: {},
+        create: { roleId: superAdminRole.id, permissionId: permission.id },
+      });
+    }
   });
 
+  // Tracked so afterAll can clean up AuditLog rows written by approve/reject
+  // (they aren't caught by the name-based Organization cleanup below, since
+  // AuditLog rows only carry organizationId, not the org's name).
+  const orgIdsToClean: string[] = [];
+
   afterAll(async () => {
+    await prisma.auditLog.deleteMany({
+      where: {
+        targetType: 'Organization',
+        organizationId: { in: orgIdsToClean },
+      },
+    });
     await prisma.user.deleteMany({
       where: { email: { contains: '@org-e2e.test' } },
     });
@@ -44,6 +80,52 @@ describe('OrganizationsController (e2e)', () => {
     });
     await app.close();
   });
+
+  async function createSuperAdminAndLogin() {
+    const email = `super-${Date.now()}-${Math.random().toString(36).slice(2)}@org-e2e.test`;
+    const passwordHash = await authService.hashPassword('password123');
+    await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName: 'Test Super Admin',
+        isSuperAdmin: true,
+        emailVerified: true,
+      },
+    });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
+  }
+
+  async function createNonAdminAndLogin() {
+    const email = `nonadmin-${Date.now()}-${Math.random().toString(36).slice(2)}@org-e2e.test`;
+    const passwordHash = await authService.hashPassword('password123');
+    await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName: 'Regular User',
+        emailVerified: true,
+      },
+    });
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'password123' });
+    return loginRes.body.accessToken as string;
+  }
+
+  async function createPendingOrg(namePrefix: string) {
+    const org = await prisma.organization.create({
+      data: {
+        name: `Org E2E Test ${namePrefix} ${Date.now()}`,
+        status: 'PENDING_APPROVAL',
+      },
+    });
+    orgIdsToClean.push(org.id);
+    return org;
+  }
 
   describe('POST /organizations', () => {
     it('registers a new organization with its owner, unauthenticated', async () => {
@@ -148,6 +230,161 @@ describe('OrganizationsController (e2e)', () => {
         .post('/api/v1/organizations')
         .send({});
       expect(res.status).not.toBe(401);
+    });
+  });
+
+  describe('POST /organizations/:id/approve', () => {
+    it('activates a PENDING_APPROVAL organization and writes an AuditLog entry (happy path)', async () => {
+      const token = await createSuperAdminAndLogin();
+      const org = await createPendingOrg('Approve');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/approve`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(201);
+
+      expect(res.body).toMatchObject({ id: org.id, status: 'ACTIVE' });
+
+      const updated = await prisma.organization.findUniqueOrThrow({
+        where: { id: org.id },
+      });
+      expect(updated.status).toBe('ACTIVE');
+      expect(updated.approvedAt).not.toBeNull();
+
+      const auditLog = await prisma.auditLog.findFirstOrThrow({
+        where: { organizationId: org.id, action: 'organization.approved' },
+      });
+      expect(auditLog.targetType).toBe('Organization');
+      expect(auditLog.targetId).toBe(org.id);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      const org = await createPendingOrg('Approve401');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/approve`)
+        .expect(401);
+    });
+
+    it('rejects a non-Super-Admin with 403', async () => {
+      const token = await createNonAdminAndLogin();
+      const org = await createPendingOrg('ApproveForbidden');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/approve`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+
+      await expect(
+        prisma.organization.findUniqueOrThrow({ where: { id: org.id } }),
+      ).resolves.toMatchObject({ status: 'PENDING_APPROVAL' });
+    });
+
+    it('returns 404 for a nonexistent organization id', async () => {
+      const token = await createSuperAdminAndLogin();
+
+      await request(app.getHttpServer())
+        .post('/api/v1/organizations/does-not-exist/approve')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+
+    it('returns 409 if the organization is no longer PENDING_APPROVAL', async () => {
+      const token = await createSuperAdminAndLogin();
+      const org = await createPendingOrg('ApproveConflict');
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/approve`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/approve`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+  });
+
+  describe('POST /organizations/:id/reject', () => {
+    it('rejects a PENDING_APPROVAL organization with a reason and writes an AuditLog entry (happy path)', async () => {
+      const token = await createSuperAdminAndLogin();
+      const org = await createPendingOrg('Reject');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ reason: 'Duplicate signup' })
+        .expect(201);
+
+      expect(res.body).toMatchObject({ id: org.id, status: 'REJECTED' });
+
+      const updated = await prisma.organization.findUniqueOrThrow({
+        where: { id: org.id },
+      });
+      expect(updated.rejectedReason).toBe('Duplicate signup');
+
+      const auditLog = await prisma.auditLog.findFirstOrThrow({
+        where: { organizationId: org.id, action: 'organization.rejected' },
+      });
+      expect(auditLog.metadata).toEqual({ reason: 'Duplicate signup' });
+    });
+
+    it('rejects a missing reason with 400', async () => {
+      const token = await createSuperAdminAndLogin();
+      const org = await createPendingOrg('RejectNoReason');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({})
+        .expect(400);
+
+      await expect(
+        prisma.organization.findUniqueOrThrow({ where: { id: org.id } }),
+      ).resolves.toMatchObject({ status: 'PENDING_APPROVAL' });
+    });
+
+    it('rejects a non-Super-Admin with 403', async () => {
+      const token = await createNonAdminAndLogin();
+      const org = await createPendingOrg('RejectForbidden');
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/organizations/${org.id}/reject`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ reason: 'nope' })
+        .expect(403);
+    });
+  });
+
+  describe('GET /organizations', () => {
+    it('returns a paginated list, filterable by status, for a Super Admin', async () => {
+      const token = await createSuperAdminAndLogin();
+      const org = await createPendingOrg('List');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations')
+        .query({ status: 'PENDING_APPROVAL', page: 1, pageSize: 5 })
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.meta).toMatchObject({ page: 1, pageSize: 5 });
+      expect(
+        (res.body.data as Array<{ id: string }>).some((o) => o.id === org.id),
+      ).toBe(true);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations')
+        .expect(401);
+    });
+
+    it('rejects a non-Super-Admin with 403', async () => {
+      const token = await createNonAdminAndLogin();
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
     });
   });
 });

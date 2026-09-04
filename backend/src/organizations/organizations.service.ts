@@ -1,7 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
+import { OrganizationStatus, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ListOrganizationsQueryDto } from './dto/list-organizations-query.dto';
 import { RegisterOrganizationDto } from './dto/register-organization.dto';
+
+const ORG_NOT_FOUND_MESSAGE = 'Organization not found.';
 
 @Injectable()
 export class OrganizationsService {
@@ -54,5 +62,113 @@ export class OrganizationsService {
         },
       };
     });
+  }
+
+  // REQ-AUTH-003: only a PENDING_APPROVAL org can be approved; written to
+  // AuditLog as a business rule, not an incidental nice-to-have.
+  async approve(id: string, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.requirePendingOrganization(tx, id);
+
+      const updated = await tx.organization.update({
+        where: { id },
+        data: { status: OrganizationStatus.ACTIVE, approvedAt: new Date() },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          organizationId: id,
+          action: 'organization.approved',
+          targetType: 'Organization',
+          targetId: id,
+        },
+      });
+
+      return this.toSummary(updated);
+    });
+  }
+
+  // REQ-AUTH-003 alt flow: rejection always carries a reason and, per the
+  // seeded User.email unique constraint, permanently blocks re-registration
+  // with the same owner email unless a Super Admin intervenes on the User
+  // row directly -- satisfying "cannot re-register... without Super Admin
+  // intervention" without any extra mechanism.
+  async reject(id: string, actorId: string, reason: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.requirePendingOrganization(tx, id);
+
+      const updated = await tx.organization.update({
+        where: { id },
+        data: { status: OrganizationStatus.REJECTED, rejectedReason: reason },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          organizationId: id,
+          action: 'organization.rejected',
+          targetType: 'Organization',
+          targetId: id,
+          metadata: { reason },
+        },
+      });
+
+      return this.toSummary(updated);
+    });
+  }
+
+  // Super Admin's review queue (REQ-AUTH-003). Platform-level, not
+  // tenant-scoped -- see docs/authorization.md §5.
+  async list(query: ListOrganizationsQueryDto) {
+    const where = query.status ? { status: query.status } : {};
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.organization.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          createdAt: true,
+          approvedAt: true,
+          rejectedReason: true,
+        },
+      }),
+      this.prisma.organization.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
+  }
+
+  private async requirePendingOrganization(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ) {
+    const organization = await tx.organization.findUnique({ where: { id } });
+    if (!organization) {
+      throw new NotFoundException(ORG_NOT_FOUND_MESSAGE);
+    }
+    if (organization.status !== OrganizationStatus.PENDING_APPROVAL) {
+      throw new ConflictException(
+        `Organization is already ${organization.status.toLowerCase()}.`,
+      );
+    }
+    return organization;
+  }
+
+  private toSummary(organization: {
+    id: string;
+    name: string;
+    status: OrganizationStatus;
+  }) {
+    return {
+      id: organization.id,
+      name: organization.name,
+      status: organization.status,
+    };
   }
 }
