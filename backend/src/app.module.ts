@@ -8,6 +8,7 @@ import { TenantGuard } from './auth/guards/tenant.guard';
 import { HealthModule } from './health/health.module';
 import { JobsModule } from './jobs/jobs.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+import { PipelineTemplatesModule } from './pipeline-templates/pipeline-templates.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -33,6 +34,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuthModule,
     OrganizationsModule,
     JobsModule,
+    PipelineTemplatesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
