@@ -15,6 +15,7 @@ import { RegisterDto } from './dto/register.dto';
 
 const INVALID_TOKEN_MESSAGE = 'Invalid or expired verification token.';
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
+const INVALID_REFRESH_TOKEN_MESSAGE = 'Invalid or expired refresh token.';
 
 export interface AccessTokenPayload {
   sub: string;
@@ -158,6 +159,32 @@ export class AuthService {
     }
 
     return this.issueTokenPair(user);
+  }
+
+  async refresh(rawToken: string): Promise<TokenPair> {
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: this.hashOpaqueToken(rawToken) },
+      include: { user: true },
+    });
+
+    if (!record || record.revokedAt || record.expiresAt < new Date()) {
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
+    }
+
+    // Guard the revoke on revokedAt: null so replaying the same refresh
+    // token concurrently can't rotate twice -- the second request's
+    // updateMany affects 0 rows and is rejected. This is also what makes a
+    // stolen-and-reused token detectable (docs/authentication.md §2): once
+    // either party rotates it, the other's next attempt fails.
+    const claim = await this.prisma.refreshToken.updateMany({
+      where: { id: record.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (claim.count === 0) {
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
+    }
+
+    return this.issueTokenPair(record.user);
   }
 
   private async issueTokenPair(user: {

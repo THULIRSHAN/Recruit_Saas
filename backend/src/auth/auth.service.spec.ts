@@ -16,7 +16,11 @@ function createPrismaMock() {
       findUnique: jest.fn(),
       updateMany: jest.fn(),
     },
-    refreshToken: { create: jest.fn() },
+    refreshToken: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
   } as unknown as PrismaService;
 }
 
@@ -230,6 +234,89 @@ describe('AuthService', () => {
           password: 'wrong-password',
         }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('refresh', () => {
+    it('rotates the token: revokes the old one and issues a new pair', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 1,
+      });
+      const service = createService(prisma);
+
+      const result = await service.refresh('old-raw-token');
+
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'rt-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) as Date },
+      });
+      expect(result.accessToken).toBe('signed.jwt.token');
+      expect(prisma.refreshToken.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an unknown token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue(null);
+      const service = createService(prisma);
+
+      await expect(service.refresh('bogus')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects an already-revoked token (replay of a rotated token)', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      const service = createService(prisma);
+
+      await expect(service.refresh('revoked-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects an expired token', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() - 1),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      const service = createService(prisma);
+
+      await expect(service.refresh('expired-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects a losing race when the same token is replayed concurrently', async () => {
+      const prisma = createPrismaMock();
+      (prisma.refreshToken.findUnique as jest.Mock).mockResolvedValue({
+        id: 'rt-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', isSuperAdmin: false },
+      });
+      (prisma.refreshToken.updateMany as jest.Mock).mockResolvedValue({
+        count: 0,
+      });
+      const service = createService(prisma);
+
+      await expect(service.refresh('raced-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
   });
 });

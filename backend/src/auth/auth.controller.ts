@@ -6,9 +6,11 @@ import {
   HttpStatus,
   Post,
   Query,
+  Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -37,6 +39,23 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const { accessToken, refreshToken } = await this.authService.login(dto);
+    res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, refreshCookieOptions());
+    return { accessToken };
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const presentedToken: unknown = req.cookies?.[REFRESH_TOKEN_COOKIE];
+    if (typeof presentedToken !== 'string') {
+      throw new UnauthorizedException('Missing refresh token.');
+    }
+
+    const { accessToken, refreshToken } =
+      await this.authService.refresh(presentedToken);
     res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, refreshCookieOptions());
     return { accessToken };
   }

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { AuthService } from '../src/auth/auth.service';
@@ -16,6 +17,9 @@ describe('AuthController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    // Mirrors main.ts -- /auth/refresh reads the refresh token from a
+    // cookie, which Express doesn't parse without this middleware.
+    app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -35,6 +39,17 @@ describe('AuthController (e2e)', () => {
     });
     await app.close();
   });
+
+  async function createCandidateWithPassword(
+    emailSuffix: string,
+    password: string,
+  ) {
+    const email = `${emailSuffix}-${Date.now()}@auth-e2e.test`;
+    const passwordHash = await authService.hashPassword(password);
+    return prisma.user.create({
+      data: { email, passwordHash, fullName: 'Login Test' },
+    });
+  }
 
   describe('POST /auth/register', () => {
     it('registers a new candidate and never returns the password hash', async () => {
@@ -178,17 +193,6 @@ describe('AuthController (e2e)', () => {
   });
 
   describe('POST /auth/login', () => {
-    async function createCandidateWithPassword(
-      emailSuffix: string,
-      password: string,
-    ) {
-      const email = `${emailSuffix}-${Date.now()}@auth-e2e.test`;
-      const passwordHash = await authService.hashPassword(password);
-      return prisma.user.create({
-        data: { email, passwordHash, fullName: 'Login Test' },
-      });
-    }
-
     it('logs in with correct credentials, returning an access token and setting a refresh cookie', async () => {
       const user = await createCandidateWithPassword('login-ok', 'password123');
 
@@ -233,6 +237,52 @@ describe('AuthController (e2e)', () => {
         .expect(401);
 
       expect(res.body.message).toBe('Invalid email or password.');
+    });
+  });
+
+  describe('POST /auth/refresh', () => {
+    it('rotates the refresh token and issues a new access token', async () => {
+      const user = await createCandidateWithPassword(
+        'refresh-ok',
+        'password123',
+      );
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: user.email, password: 'password123' })
+        .expect(200);
+      const cookie = loginRes.headers['set-cookie'] as unknown as string[];
+
+      const refreshRes = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', cookie)
+        .expect(200);
+
+      expect(typeof refreshRes.body.accessToken).toBe('string');
+      const newCookie = refreshRes.headers['set-cookie'] as unknown as string[];
+      expect(newCookie).toBeDefined();
+      // The opaque refresh token itself must differ (unlike the JWT access
+      // token's claims, which can legitimately collide when login+refresh
+      // happen within the same iat/exp second) -- this is what "rotation"
+      // actually means.
+      expect(newCookie.join(';')).not.toBe(cookie.join(';'));
+
+      // The old cookie was revoked by the rotation above -- replaying it
+      // must fail, which is what makes a stolen-and-reused token detectable.
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', cookie)
+        .expect(401);
+    });
+
+    it('rejects a request with no refresh cookie at all', async () => {
+      await request(app.getHttpServer()).post('/auth/refresh').expect(401);
+    });
+
+    it('rejects an unknown refresh token', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', ['refresh_token=not-a-real-token'])
+        .expect(401);
     });
   });
 });
