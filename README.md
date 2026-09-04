@@ -19,7 +19,7 @@ This is the **Phase 1 deliverable**: complete requirement engineering and archit
 ## Status
 
 Phase 1 (Requirements & Architecture) — complete; `docs/open-questions.md` resolved 2026-09-03 (Q1–Q10) and 2026-09-04 (Q11–Q12).
-Phase 2/3 (Project Setup, Database, Auth) — M1 (Project Skeleton), M2 (Database Foundation), and M3 (Authentication) all complete as of 2026-09-04. M4 (RBAC + Multi-tenancy) next.
+Phase 2/3/4 (Project Setup, Database, Auth, RBAC) — M1 (Project Skeleton), M2 (Database Foundation), M3 (Authentication), and M4 (RBAC + Multi-tenancy) all complete as of 2026-09-04. M5 (Organizations) next -- the first real consumer of M4's TenantGuard/PermissionsGuard.
 
 ## Running Locally
 
