@@ -165,6 +165,26 @@ export interface OrgApplication {
   stage: { id: string; name: string };
 }
 
+// SUSPENDED exists in the schema but nothing transitions an org to it yet
+// -- kept here for type accuracy, not surfaced as its own admin tab.
+export type OrganizationStatus = 'PENDING_APPROVAL' | 'ACTIVE' | 'REJECTED' | 'SUSPENDED';
+
+export interface AdminOrganization {
+  id: string;
+  name: string;
+  status: OrganizationStatus;
+  createdAt: string;
+  approvedAt: string | null;
+  rejectedReason: string | null;
+}
+
+export interface PlatformAnalytics {
+  organizations: { total: number; byStatus: Record<string, number> };
+  jobs: { total: number; byStatus: Record<string, number> };
+  applications: { total: number; byStatus: Record<string, number> };
+  subscriptions: { total: number; byPlan: Record<string, number> };
+}
+
 export interface OrgMember {
   id: string;
   fullName: string;
