@@ -14,6 +14,12 @@ COPY frontend/package.json frontend/package.json
 RUN npm ci --ignore-scripts
 
 FROM deps AS build
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time, not
+# read at container start -- must be a build ARG, not just a runtime
+# environment: entry in docker-compose.yml (which the build stage never
+# sees).
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY frontend frontend
 RUN npm run build --workspace=frontend
 

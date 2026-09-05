@@ -3,7 +3,16 @@ import type { PaginatedResponse, PublicJob } from './types';
 // Server-side only (used from RSC page components) -- talks to the backend
 // directly, no browser CORS/cookie concerns since there's no user session
 // involved for these public, unauthenticated endpoints.
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+//
+// NEXT_PUBLIC_API_URL is a browser-facing URL (docs/.env.example: "must be
+// a host-reachable URL, not a docker-compose service name, even when the
+// frontend runs in a container") -- inside the frontend container itself,
+// "localhost:3001" refers to the frontend container, not the backend one.
+// INTERNAL_API_URL is the server-only override for that case (set to
+// http://backend:3001 in docker-compose.yml); native (non-Docker) runs
+// don't need it since there's no separate container network.
+const API_BASE =
+  process.env.INTERNAL_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export async function searchPublicJobs(params: {
   keyword?: string;

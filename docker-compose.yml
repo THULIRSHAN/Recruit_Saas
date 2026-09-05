@@ -49,6 +49,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     restart: unless-stopped
     depends_on:
       - backend
@@ -57,6 +59,12 @@ services:
       PORT: ${FRONTEND_PORT:-3000}
       HOSTNAME: '0.0.0.0'
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      # Server-side (RSC) fetches run inside this container, where
+      # "localhost:3001" means itself, not the backend service -- route
+      # those through the service name instead. The browser still uses
+      # NEXT_PUBLIC_API_URL above (baked into the client bundle at build
+      # time), since it isn't on the compose network.
+      INTERNAL_API_URL: http://backend:3001
     ports:
       - '${FRONTEND_PORT:-3000}:3000'
 
