@@ -16,7 +16,7 @@ const publicSans = Public_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'Hirelane',
+  title: { default: 'Hirelane', template: '%s · Hirelane' },
   description: 'Applicant Tracking & Recruitment Management SaaS platform',
 };
 

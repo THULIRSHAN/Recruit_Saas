@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Avatar, Badge, Button, Card, Divider } from '@/components/ui';
@@ -6,6 +7,13 @@ import { formatRelativeDate, formatSalaryRange } from '@/lib/format';
 
 interface JobPageProps {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: JobPageProps): Promise<Metadata> {
+  const { id } = await params;
+  const job = await getPublicJob(id);
+  if (!job) return { title: 'Job not found' };
+  return { title: `${job.title} at ${job.organization.name}` };
 }
 
 export default async function JobPage({ params }: JobPageProps) {

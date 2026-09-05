@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Badge, Card } from '@/components/ui';
 import { Avatar } from '@/components/ui/Avatar';
 import { searchPublicJobs } from '@/lib/public-jobs';
 import { formatRelativeDate, formatSalaryRange } from '@/lib/format';
 import { EMPLOYMENT_TYPES } from '@/lib/types';
+
+export const metadata: Metadata = {
+  title: 'Find your next role',
+};
 
 interface HomePageProps {
   searchParams: Promise<{ keyword?: string; location?: string; employmentType?: string }>;
