@@ -201,3 +201,69 @@ export interface CandidateProfile {
   skills: CandidateSkill[];
   cvs: CandidateCv[];
 }
+
+// backend/src/notifications/notifications.service.ts's toDetail().
+export interface AppNotification {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}
+
+// backend/src/subscriptions/subscriptions.service.ts.
+export interface Plan {
+  id: string;
+  key: 'FREE' | 'STARTER' | 'PRO';
+  name: string;
+  maxActiveJobs: number | null;
+  maxSeats: number | null;
+  priceCents: number;
+}
+
+export interface Payment {
+  id: string;
+  amountCents: number;
+  status: 'SUCCEEDED' | 'FAILED' | 'REFUNDED';
+  createdAt: string;
+}
+
+export interface Subscription {
+  id: string | null;
+  status: 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | null;
+  currentPeriodEnd: string | null;
+  plan: Omit<Plan, 'id'> | null;
+  payments: Payment[];
+}
+
+// backend/src/talent-pools/talent-pools.service.ts's toDetail().
+export interface TalentPool {
+  id: string;
+  name: string;
+  candidates: { id: string; fullName: string | null; email: string | null; addedAt: string }[];
+}
+
+// backend/src/universities/universities.service.ts.
+export interface University {
+  id: string;
+  name: string;
+}
+
+export interface UniversityPartnership {
+  id: string;
+  startedAt: string;
+  university: University;
+}
+
+// backend/src/onboarding/onboarding.service.ts's toDetail().
+export interface OnboardingChecklist {
+  id: string;
+  createdAt: string;
+  tasks: {
+    id: string;
+    name: string;
+    required: boolean;
+    completedAt: string | null;
+    documents: { id: string; fileName: string; uploadedAt: string }[];
+  }[];
+}

@@ -8,6 +8,10 @@ const NAV_ITEMS = [
   { label: 'Dashboard', href: '/org' },
   { label: 'Jobs', href: '/org/jobs' },
   { label: 'Interviews', href: '/org/interviews' },
+  { label: 'Talent Pools', href: '/org/talent-pools' },
+  { label: 'University Partners', href: '/org/partnerships' },
+  { label: 'Subscription', href: '/org/subscription' },
+  { label: 'Notifications', href: '/org/notifications' },
 ];
 
 function OrgLabel() {

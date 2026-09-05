@@ -3,6 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Divider, Field, Input } from '@/components/ui';
+import { OnboardingPanel } from '@/components/OnboardingPanel';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Offer, OrgApplication } from '@/lib/types';
@@ -93,7 +94,15 @@ export default function CreateOfferPage() {
             </div>
           </div>
         </Card>
-      ) : (
+      ) : null}
+
+      {existingOffer?.status === 'ACCEPTED' && (
+        <div className="mt-4">
+          <OnboardingPanel basePath={`/jobs/${id}/applications/${appId}/onboarding`} mode="org" />
+        </div>
+      )}
+
+      {!existingOffer && (
         <Card>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Field label="Job title">

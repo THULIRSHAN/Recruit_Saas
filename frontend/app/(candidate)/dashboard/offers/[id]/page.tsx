@@ -3,6 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Divider } from '@/components/ui';
+import { OnboardingPanel } from '@/components/OnboardingPanel';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Offer } from '@/lib/types';
@@ -101,6 +102,12 @@ export default function OfferReviewPage() {
           </Button>
         )}
       </Card>
+
+      {offer.status === 'ACCEPTED' && (
+        <div className="mt-4 w-full">
+          <OnboardingPanel basePath={`/applications/${id}/onboarding`} mode="candidate" />
+        </div>
+      )}
     </div>
   );
 }

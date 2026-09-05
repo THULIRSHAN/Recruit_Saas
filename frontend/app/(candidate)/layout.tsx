@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: 'My Applications', href: '/dashboard/applications' },
   { label: 'Profile', href: '/dashboard/profile' },
   { label: 'Offers', href: '/dashboard/offers' },
+  { label: 'Notifications', href: '/dashboard/notifications' },
 ];
 
 export default function CandidateLayout({ children }: { children: React.ReactNode }) {

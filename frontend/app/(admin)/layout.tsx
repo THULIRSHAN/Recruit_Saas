@@ -6,6 +6,8 @@ import { useRequireAuth } from '@/lib/use-require-auth';
 const NAV_ITEMS = [
   { label: 'Overview', href: '/admin' },
   { label: 'Organizations', href: '/admin/organizations' },
+  { label: 'Universities', href: '/admin/universities' },
+  { label: 'Notifications', href: '/admin/notifications' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

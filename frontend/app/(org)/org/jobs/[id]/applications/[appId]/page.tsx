@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card } from '@/components/ui';
+import { Badge, Button, Card, Select } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
-import type { Evaluation, OrgApplication, RecruitmentStage } from '@/lib/types';
+import type { Evaluation, OrgApplication, RecruitmentStage, TalentPool } from '@/lib/types';
 
 const RECOMMENDATION_LABEL: Record<string, string> = {
   STRONG_YES: 'Strong Yes',
@@ -192,11 +192,60 @@ export default function ApplicationDetailPage() {
           <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Submitted CV</div>
           <p className="text-[13px] text-ink">{application.cv.fileName}</p>
         </Card>
-        <Card>
+        <Card className="mb-4">
           <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Application details</div>
           <p className="text-[12.5px] text-ink-soft">Applied {formatDate(application.appliedAt)}</p>
         </Card>
+
+        <AddToTalentPool candidateId={application.candidate.id} />
       </div>
     </div>
+  );
+}
+
+function AddToTalentPool({ candidateId }: { candidateId: string }) {
+  const [pools, setPools] = useState<TalentPool[]>([]);
+  const [selected, setSelected] = useState('');
+  const [status, setStatus] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    api.get<TalentPool[]>('/talent-pools').then(setPools);
+  }, []);
+
+  async function add() {
+    if (!selected) return;
+    setAdding(true);
+    setStatus(null);
+    try {
+      await api.post(`/talent-pools/${selected}/candidates`, { candidateId });
+      setStatus('Added.');
+    } catch (err) {
+      setStatus(err instanceof ApiError ? err.message : 'Something went wrong.');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  if (pools.length === 0) return null;
+
+  return (
+    <Card>
+      <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Talent pool</div>
+      <div className="flex gap-2">
+        <Select value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <option value="">Choose a pool…</option>
+          {pools.map((pool) => (
+            <option key={pool.id} value={pool.id}>
+              {pool.name}
+            </option>
+          ))}
+        </Select>
+        <Button size="sm" variant="secondary" onClick={add} disabled={!selected || adding}>
+          Add
+        </Button>
+      </div>
+      {status && <p className="mt-2 text-[11.5px] text-ink-soft">{status}</p>}
+    </Card>
   );
 }
