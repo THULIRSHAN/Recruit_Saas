@@ -52,7 +52,7 @@ Every module's endpoint table in later phase docs will follow exactly this shape
 
 # Frontend Architecture
 
-Status: DRAFT v1.0
+Status: IMPLEMENTED (F1-F6, 2026-09-05). This section originally described a DRAFT v1.0 plan written during Phase 1, before either the backend or a UI design existed; it's rewritten below to describe what was actually built. The build itself was driven by a user-supplied HTML/CSS/JS prototype ("Hirelane") rather than from this doc directly, and where the prototype/this doc's original plan conflicted with the backend's real shape, the backend won (see `docs/open-questions.md` Q33 for the gaps that surfaced doing this).
 
 ## 1. Next.js App Structure
 
@@ -60,42 +60,46 @@ Route groups separate portals so each can have its own layout, auth guard, and n
 
 ```
 app/
-  (public)/            → landing, public job search, job details (no auth)
-  (auth)/               → login, register, forgot/reset password, org registration
-  (candidate)/           → candidate dashboard, profile, applications, offers
-  (org)/                 → recruiter/hiring-manager/interviewer/HR portal
-    [orgId]/jobs/
-    [orgId]/applications/
-    [orgId]/pipeline/
-    [orgId]/interviews/
-    [orgId]/offers/
-    [orgId]/settings/
-  (admin)/                → Super Admin portal
-    organizations/
-    users/
-    subscriptions/
-    audit-logs/
-  components/
-    ui/                    → shared design-system primitives (Button, Input, Table, Modal, EmptyState, ErrorState...)
-    forms/                  → reusable form components w/ validation wiring
-  lib/
-    api-client.ts            → typed fetch wrapper (attaches access token, handles 401 → refresh → retry once)
-    auth/                     → auth context/hooks (useAuth, useCurrentOrg)
-    permissions/               → frontend permission-check helpers (UI convenience only — mirrors backend permission keys, never the source of truth)
+  (public)/                     → landing (job search), jobs/[id] (job detail) — no auth
+  (auth)/                        → login, register (candidate), register/organization
+  (candidate)/                    → dashboard, dashboard/applications[/[id]], dashboard/offers[/[id]],
+                                     dashboard/profile, apply (job application form)
+  (org)/                           → recruiter/hiring-manager/interviewer/HR portal
+    org/                            → dashboard
+    org/jobs[/new|/[id]/edit|/[id]/pipeline]
+    org/jobs/[id]/applications/[appId][/schedule|/offer]
+    org/interviews                  → interviewer's own assigned interviews + evaluation submission
+  (admin)/                          → Super Admin portal
+    admin                            → platform overview
+    admin/organizations               → approval queue
+components/
+  ui/                                → shared design-system primitives (Button, Badge, Card, Field/Input/Select/
+                                        Textarea, Avatar, Pill, Divider, StatCard, EmptyState, Stars)
+  layout/                             → AppShell (shared sidebar/user-block layout for all three authed portals),
+                                        PublicTopbar
+lib/
+  api.ts                               → typed fetch wrapper (attaches access token, handles 401 → refresh → retry
+                                          once, deduplicated against concurrent refresh attempts)
+  auth-context.tsx, org-context.tsx     → AuthProvider/useAuth, OrgProvider/useOrg
+  use-require-auth.ts                    → shared auth-guard hook (redirects to /login?next=... with a role
+                                            predicate per portal)
+  types.ts                                → response-shape types mirroring each backend service's toDetail()
 ```
 
-Each protected route group's `layout.tsx` enforces: authenticated, correct role for that portal, and (for `(org)`) that `[orgId]` in the URL matches the user's active org — a defense-in-depth UI check, since the real enforcement is server-side per `multi-tenancy.md`.
+**No `[orgId]` in any `(org)` route**, unlike the original DRAFT v1.0 sketch this section used to have. The backend never takes an org id from the URL for org-scoped resources either — every org-scoped endpoint derives `organizationId` from the caller's JWT (`docs/multi-tenancy.md`'s "never from client input" rule) — so there was never a URL-level org id to guard against; the frontend's route shape just followed that reality once it existed.
+
+Each protected route group's `layout.tsx` enforces auth + role via `useRequireAuth`, a client-side, defense-in-depth check only — the real enforcement is server-side per `multi-tenancy.md`, same reasoning as originally planned.
+
+**No `admin/users`, `admin/subscriptions`, or `admin/audit-logs`** — the backend has no endpoint to list users platform-wide or read the (write-only) `AuditLog`, and there's no admin subscriptions view in the source prototype either. Building those pages against nothing would mean fabricating data; they're a documented gap (see `docs/open-questions.md`), not a silent omission.
 
 ## 2. State & Data
 
-- **Server state** (data from the API): React Query (TanStack Query) — handles caching, refetching, loading/error states consistently, avoids the classic "duplicate fetch logic in every component" anti-pattern called out in the code-quality rules.
-- **Client/UI state** (form drafts, modal open/closed, wizard steps): local component state or a light store (Zustand) only where genuinely needed — avoid a heavy global store for things that don't need to be global.
-- **Forms:** React Hook Form + a shared Zod schema per DTO, ideally the *same* validation shape mirrored from the backend DTO (not copy-pasted independently, to avoid drift) — frontend validation is for UX responsiveness only, the backend re-validates everything regardless (see `13. VALIDATION`).
+Actually built: plain `useEffect` + `useState` data fetching through `lib/api.ts`, no React Query/TanStack Query, no Zustand, no React Hook Form + Zod, despite DRAFT v1.0 calling for all four. This was a deliberate simplification, not an oversight — with ~25 pages and mostly one fetch (or one mutation) per page, the caching/refetch machinery React Query exists for had no real duplicate-fetch problem to solve yet, and every form's validation is a handful of controlled inputs with inline error state, not complex enough to justify a schema library on top of what `class-validator` already enforces server-side. If the page count or form complexity grows enough that this becomes real duplicated logic (the same "don't repeat yourself" trigger the code-quality rules already call out), reach for React Query first — it's the highest-leverage of the three.
 
 ## 3. UI States Discipline
 
-Every data-driven view implements four states explicitly, not just the happy path: **loading** (skeleton, not a blank screen), **error** (retry affordance, not a raw error dump), **empty** (helpful message + next action, e.g., "No applications yet — jobs you apply to will show up here"), **populated**. This is a Definition-of-Done item, not optional polish.
+Every data-driven view distinguishes **loading** (a plain "Loading…" today, not yet a skeleton — the one place this build fell short of the DRAFT v1.0 bar), **error** (inline message near the action that failed, not a raw error dump — `ApiError.message` surfaced directly since the backend's validation messages are already user-appropriate), **empty** (the shared `EmptyState` component, with a next-action link where one exists), and **populated**.
 
 ## 4. Reusable Components
 
-Anything appearing in more than one portal (data tables with sort/filter/pagination, status badges for Job/Application/Offer states, file upload widgets, confirmation modals) lives in `components/ui` or `components/forms`, never copy-pasted per portal. A code review finding duplicated table/pagination logic across two feature folders is a LOW/MEDIUM finding worth flagging early, before it spreads.
+Shared primitives live in `components/ui` (see the file list above) and `components/layout` (`AppShell` is used by all three authed portals — candidate/org/admin — parameterized by nav items). There is no separate `components/forms` — each form's fields are inline in its page, since none were complex or repeated enough yet to justify extracting one (see §2's reasoning).
