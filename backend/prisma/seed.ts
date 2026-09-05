@@ -36,6 +36,9 @@ const RECRUITER_PERMISSIONS = [
   // docs/open-questions.md Q30. No key in the original catalog covered
   // talent pools at all.
   'talentPool:manage',
+  // New permission (not a missing grant of an existing one) -- see
+  // docs/open-questions.md Q32.
+  'analytics:read',
 ];
 
 const HIRING_MANAGER_PERMISSIONS = [
@@ -43,6 +46,9 @@ const HIRING_MANAGER_PERMISSIONS = [
   'evaluation:read',
   'application:decide',
   'job:read',
+  // New permission (not a missing grant of an existing one) -- see
+  // docs/open-questions.md Q32.
+  'analytics:read',
 ];
 
 const INTERVIEWER_PERMISSIONS = ['interview:read', 'evaluation:submit'];

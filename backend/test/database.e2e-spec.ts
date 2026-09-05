@@ -48,12 +48,18 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     // of an existing one) -- no key in the original catalog covered
     // talent pools at all.
     'talentPool:manage',
+    // Q32 (docs/open-questions.md): a new permission (not a missing grant
+    // of an existing one).
+    'analytics:read',
   ],
   HIRING_MANAGER: [
     'application:read',
     'evaluation:read',
     'application:decide',
     'job:read',
+    // Q32 (docs/open-questions.md): a new permission (not a missing grant
+    // of an existing one).
+    'analytics:read',
   ],
   INTERVIEWER: ['interview:read', 'evaluation:submit'],
   HR_MANAGER: [
@@ -97,6 +103,7 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'evaluation:read',
     'evaluation:submit',
     'talentPool:manage',
+    'analytics:read',
     'offer:create',
     'offer:read',
     'offer:send',

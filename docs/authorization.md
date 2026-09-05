@@ -22,8 +22,8 @@ Instead: **centralized, declarative, permission-based** authorization — a sing
 |---|---|
 | **Candidate** | `application:create` (own), `application:read` (own), `application:withdraw` (own), `candidateProfile:update` (own), `offer:read` (own), `offer:respond` (own), `onboarding:read` (own), `document:upload` (own) |
 | **Company Owner** | all org-scoped permissions below, plus `organization:update`, `user:invite`, `user:remove`, `subscription:manage`, `role:assign`, `university:partner` |
-| **Recruiter** | `job:create`, `job:update`, `job:publish`, `job:close`, `job:read`, `application:read`, `application:screen`, `application:shortlist`, `pipeline:manage`, `interview:schedule`, `interview:read`, `evaluation:read`, `talentPool:manage` |
-| **Hiring Manager** | `application:read`, `evaluation:read`, `application:decide` (hire/reject), `job:read` |
+| **Recruiter** | `job:create`, `job:update`, `job:publish`, `job:close`, `job:read`, `application:read`, `application:screen`, `application:shortlist`, `pipeline:manage`, `interview:schedule`, `interview:read`, `evaluation:read`, `talentPool:manage`, `analytics:read` |
+| **Hiring Manager** | `application:read`, `evaluation:read`, `application:decide` (hire/reject), `job:read`, `analytics:read` |
 | **Interviewer** | `interview:read` (own assignments only — ownership check, not just role), `evaluation:submit` (own assignment only) |
 | **HR Manager** | `offer:create`, `offer:read`, `offer:send`, `document:request`, `document:read` (org), `onboarding:manage` |
 | **Super Admin** | `organization:approve`, `organization:reject`, `organization:suspend`, `user:manage` (platform), `subscription:read` (platform), `payment:read` (platform), `analytics:platform`, `auditLog:read` (platform), `university:manage` (platform) |

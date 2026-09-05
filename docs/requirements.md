@@ -247,7 +247,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Business rules:** One partnership per (org, university) pair (`@@unique([organizationId, universityId])` in the schema) — 409 on a duplicate. Ending a partnership deletes the `UniversityPartnership` row; the `University` catalog entry itself is unaffected (other orgs may still be partnered with it).
 - **Priority:** P2
 
-*(REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-ANALYTICS-001/002 — Analytics Dashboards
+
+- **Actors:** REQ-ANALYTICS-001 — Recruiter, Hiring Manager, Company Owner (org-scoped). REQ-ANALYTICS-002 — Super Admin (platform-wide).
+- **Main flow:** `GET /organizations/me/analytics` returns funnel counts for the caller's own org: `Job`s by status, `Application`s by status, `Interview`s by status, `Offer`s by status — the recruitment pipeline's current shape, not historical trends. `GET /admin/analytics` (the `/api/admin/*` platform-level namespace `authorization.md` §5 already calls for) returns the same shape platform-wide, plus `Organization` counts by status and `Subscription` counts by plan.
+- **Business rules:** Point-in-time counts only for this phase — no time-series data (e.g., "applications this month vs. last month") or derived rate/duration metrics (e.g., time-to-hire, conversion rate between stages) are computed, since no schema field unambiguously marks *when* a status transition happened (`Application.updatedAt` changes on any update, not specifically a hire) and inventing one would be exactly the kind of silent business-rule resolution `CLAUDE.md` rule 9 warns against (Q32).
+- **Priority:** P2
+
+*(REQ-AUDIT is indexed in §3.1 above; full detail will be produced at the start of its implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into a feature that may shift before we reach it.)*
 
 ---
 
