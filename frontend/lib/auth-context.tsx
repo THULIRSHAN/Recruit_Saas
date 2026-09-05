@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, setAccessToken } from './api';
+import { api, refreshAccessToken, setAccessToken } from './api';
 
 // Mirrors backend/src/auth/auth.service.ts's AccessTokenPayload -- returned
 // as-is by GET /auth/me.
@@ -10,6 +10,8 @@ export interface AuthUser {
   orgId: string | null;
   roles: string[];
   isSuperAdmin: boolean;
+  email: string;
+  fullName: string;
 }
 
 interface RegisterCandidateInput {
@@ -45,8 +47,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Silent SSO: the refresh token lives in an httpOnly cookie the JS
         // layer never sees, so every page load re-mints an access token
         // from it rather than persisting the access token itself.
-        const res = await api.post<{ accessToken: string }>('/auth/refresh');
-        setAccessToken(res.accessToken);
+        // Goes through the same deduplicated refreshAccessToken() the 401
+        // retry path uses (not a raw api.post) -- React Strict Mode double-
+        // invokes this effect in development, and the refresh token is
+        // single-use, so two independent calls would race (one 401s and
+        // wrongly logs the user back out).
+        const refreshed = await refreshAccessToken();
+        if (!refreshed) throw new Error('refresh failed');
         await loadMe();
       } catch {
         setAccessToken(null);

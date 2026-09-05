@@ -77,6 +77,8 @@ describe('PermissionsGuard', () => {
       orgId: null,
       roles: [],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
@@ -106,6 +108,8 @@ describe('PermissionsGuard', () => {
       orgId: 'org-1',
       roles: ['RECRUITER'],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
@@ -130,6 +134,8 @@ describe('PermissionsGuard', () => {
       orgId: 'org-1',
       roles: ['RECRUITER'],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
@@ -160,6 +166,8 @@ describe('PermissionsGuard', () => {
       orgId: 'org-1',
       roles: ['INTERVIEWER'],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
@@ -189,6 +197,8 @@ describe('PermissionsGuard', () => {
       orgId: 'org-1',
       roles: ['RECRUITER'],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
@@ -210,6 +220,8 @@ describe('PermissionsGuard', () => {
       orgId: 'org-1',
       roles: ['INTERVIEWER'],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
@@ -232,6 +244,8 @@ describe('PermissionsGuard', () => {
       orgId: null,
       roles: [],
       isSuperAdmin: true,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
@@ -253,6 +267,8 @@ describe('PermissionsGuard', () => {
       orgId: null,
       roles: [],
       isSuperAdmin: true,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
 
     await expect(guard.canActivate(createContext(user))).rejects.toBeInstanceOf(
@@ -271,6 +287,8 @@ describe('PermissionsGuard', () => {
       // otherwise -- the DB value must win.
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         isSuperAdmin: true,
+        email: 'test@example.com',
+        fullName: 'Test User',
       });
       (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue({
         roleId: 'r1',
@@ -282,6 +300,8 @@ describe('PermissionsGuard', () => {
         orgId: null,
         roles: [],
         isSuperAdmin: false,
+        email: 'test@example.com',
+        fullName: 'Test User',
       };
 
       await expect(guard.canActivate(createContext(user))).resolves.toBe(true);
@@ -305,6 +325,8 @@ describe('PermissionsGuard', () => {
       const prisma = createPrismaMock();
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         isSuperAdmin: false,
+        email: 'test@example.com',
+        fullName: 'Test User',
       });
       (prisma.rolePermission.findFirst as jest.Mock).mockResolvedValue(null);
       const guard = new PermissionsGuard(reflector, prisma);
@@ -313,6 +335,8 @@ describe('PermissionsGuard', () => {
         orgId: null,
         roles: [],
         isSuperAdmin: true,
+        email: 'test@example.com',
+        fullName: 'Test User',
       };
 
       await expect(
@@ -341,6 +365,8 @@ describe('PermissionsGuard', () => {
         orgId: null,
         roles: [],
         isSuperAdmin: true,
+        email: 'test@example.com',
+        fullName: 'Test User',
       };
 
       await expect(
@@ -356,6 +382,8 @@ describe('PermissionsGuard', () => {
       const prisma = createPrismaMock();
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({
         isSuperAdmin: false,
+        email: 'test@example.com',
+        fullName: 'Test User',
       });
       (prisma.userOrganizationRole.findMany as jest.Mock).mockResolvedValue([
         { role: { key: 'RECRUITER' } },
@@ -370,6 +398,8 @@ describe('PermissionsGuard', () => {
         orgId: 'org-1',
         roles: [],
         isSuperAdmin: false,
+        email: 'test@example.com',
+        fullName: 'Test User',
       };
 
       await expect(guard.canActivate(createContext(user))).resolves.toBe(true);

@@ -76,6 +76,8 @@ describe('JwtAuthGuard', () => {
       orgId: null,
       roles: [],
       isSuperAdmin: false,
+      email: 'test@example.com',
+      fullName: 'Test User',
     };
     const reflector = {
       getAllAndOverride: jest.fn().mockReturnValue(false),

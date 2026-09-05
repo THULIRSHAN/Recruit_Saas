@@ -32,6 +32,11 @@ export interface AccessTokenPayload {
   orgId: string | null;
   roles: string[];
   isSuperAdmin: boolean;
+  // Display-only -- there's no separate "get my user profile" endpoint, and
+  // the frontend needs a name/email to render (e.g. the sidebar user block)
+  // without a second round trip. Never used for authorization decisions.
+  email: string;
+  fullName: string;
 }
 
 export interface TokenPair {
@@ -329,7 +334,12 @@ export class AuthService {
   }
 
   private async issueTokenPair(
-    user: { id: string; isSuperAdmin: boolean },
+    user: {
+      id: string;
+      isSuperAdmin: boolean;
+      email: string;
+      fullName: string;
+    },
     orgContext?: { orgId: string; roles: string[] },
   ): Promise<TokenPair> {
     const { orgId, roles } =
@@ -340,6 +350,8 @@ export class AuthService {
       orgId,
       roles,
       isSuperAdmin: user.isSuperAdmin,
+      email: user.email,
+      fullName: user.fullName,
     };
     const accessToken = await this.jwt.signAsync(payload);
 

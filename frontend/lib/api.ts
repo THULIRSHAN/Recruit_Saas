@@ -48,7 +48,7 @@ let refreshPromise: Promise<boolean> | null = null;
 // Deduplicates concurrent refresh attempts -- several requests can 401 at
 // once (e.g. a dashboard firing several fetches in parallel after the access
 // token expires) and must not each spend the single-use refresh token.
-async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       try {

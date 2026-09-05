@@ -31,6 +31,8 @@ const user: AccessTokenPayload = {
   orgId: 'org-1',
   roles: ['RECRUITER'],
   isSuperAdmin: false,
+  email: 'test@example.com',
+  fullName: 'Test User',
 };
 
 describe('TenantGuard', () => {
