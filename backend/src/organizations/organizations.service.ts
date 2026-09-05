@@ -304,6 +304,98 @@ export class OrganizationsService {
     };
   }
 
+  // Q34: only what's still actionable -- an accepted invitation is just a
+  // member now (see listMembers()), and an expired one is already inert.
+  async listPendingInvitations(orgId: string | null) {
+    const organization = await this.requireOwnOrganization(orgId);
+    const invitations = await this.prisma.invitation.findMany({
+      where: {
+        organizationId: organization.id,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    // Invitation.roleId has no declared Prisma relation (scalar FK only) --
+    // same reason inviteStaff() above resolves it with a separate lookup.
+    const roles = await this.prisma.role.findMany({
+      where: { id: { in: invitations.map((i) => i.roleId) } },
+      select: { id: true, key: true, name: true },
+    });
+    const roleById = new Map(roles.map((r) => [r.id, r]));
+    return invitations.map((invitation) => {
+      const role = roleById.get(invitation.roleId);
+      return {
+        id: invitation.id,
+        email: invitation.email,
+        role: role ? { key: role.key, name: role.name } : null,
+        expiresAt: invitation.expiresAt,
+        createdAt: invitation.createdAt,
+      };
+    });
+  }
+
+  // Q34: deleting rather than flagging "cancelled" -- nothing else in the
+  // system ever needs to distinguish a cancelled invitation from one that
+  // never existed (unlike Offer/Application, there's no history view over
+  // invitations to preserve).
+  async cancelInvitation(orgId: string | null, invitationId: string) {
+    const organization = await this.requireOwnOrganization(orgId);
+    const invitation = await this.prisma.invitation.findFirst({
+      where: {
+        id: invitationId,
+        organizationId: organization.id,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!invitation) {
+      throw new NotFoundException('Pending invitation not found.');
+    }
+    await this.prisma.invitation.delete({ where: { id: invitation.id } });
+  }
+
+  // Q34: removes this user's access to this org only -- their account and
+  // any other org membership or candidate identity (Q3) are untouched.
+  async removeMember(
+    orgId: string | null,
+    actorId: string,
+    targetUserId: string,
+  ) {
+    const organization = await this.requireOwnOrganization(orgId);
+    if (targetUserId === actorId) {
+      throw new ConflictException(
+        'You cannot remove yourself from the organization.',
+      );
+    }
+
+    const memberships = await this.prisma.userOrganizationRole.findMany({
+      where: { organizationId: organization.id, userId: targetUserId },
+      include: { role: { select: { key: true } } },
+    });
+    if (memberships.length === 0) {
+      throw new NotFoundException('Member not found.');
+    }
+
+    if (memberships.some((m) => m.role.key === 'COMPANY_OWNER')) {
+      const ownerCount = await this.prisma.userOrganizationRole.count({
+        where: {
+          organizationId: organization.id,
+          role: { key: 'COMPANY_OWNER' },
+        },
+      });
+      if (ownerCount <= 1) {
+        throw new ConflictException(
+          "Cannot remove the organization's only Company Owner.",
+        );
+      }
+    }
+
+    await this.prisma.userOrganizationRole.deleteMany({
+      where: { organizationId: organization.id, userId: targetUserId },
+    });
+  }
+
   // REQ-AUTH-008: "if new user, sets password and account is created
   // pre-bound to the org+role; if existing user, the role is attached to
   // their account for that org." Public -- possessing the token is the

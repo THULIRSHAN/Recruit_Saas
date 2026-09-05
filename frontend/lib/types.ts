@@ -200,6 +200,16 @@ export interface OrgMember {
   roles: string[];
 }
 
+// Mirrors backend/src/organizations/organizations.service.ts's
+// listPendingInvitations() -- GET /organizations/me/invitations.
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: { key: string; name: string } | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
 export interface CandidateProfile {
   headline: string | null;
   location: string | null;

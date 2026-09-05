@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -12,6 +13,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { AccessTokenPayload } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { OrgScoped } from '../auth/decorators/org-scoped.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
@@ -70,6 +72,40 @@ export class OrganizationsController {
     @Body() dto: CreateInvitationDto,
   ) {
     return this.organizationsService.inviteStaff(user.orgId, dto);
+  }
+
+  // Q34: same actor as who can send one. @OrgScoped() -- id-less aggregate
+  // list, same shape as OrgOffersController (no permission-catalog overlap
+  // with CANDIDATE here, but consistent with every other organizations/me/*
+  // list route carrying an explicit tenant-scope signal).
+  @Get('me/invitations')
+  @RequirePermission('user:invite')
+  @OrgScoped()
+  listPendingInvitations(@CurrentUser() user: AccessTokenPayload) {
+    return this.organizationsService.listPendingInvitations(user.orgId);
+  }
+
+  @Delete('me/invitations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('user:invite')
+  @OrgScoped()
+  cancelInvitation(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('id') id: string,
+  ) {
+    return this.organizationsService.cancelInvitation(user.orgId, id);
+  }
+
+  // Q34: Company-Owner-only (user:remove was seeded but never used since M4).
+  @Delete('me/members/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('user:remove')
+  @OrgScoped()
+  removeMember(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('userId') userId: string,
+  ) {
+    return this.organizationsService.removeMember(user.orgId, user.sub, userId);
   }
 
   // Super Admin's review queue (REQ-AUTH-003). Platform-level, not

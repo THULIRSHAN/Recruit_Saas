@@ -64,6 +64,7 @@ describe('OrganizationsController (e2e)', () => {
     await grantPermission(superAdminRole.id, 'organization:reject');
     await grantPermission(companyOwnerRole.id, 'organization:update');
     await grantPermission(companyOwnerRole.id, 'user:invite');
+    await grantPermission(companyOwnerRole.id, 'user:remove');
   });
 
   // Tracked so afterAll can clean up AuditLog rows written by approve/reject
@@ -871,6 +872,281 @@ describe('OrganizationsController (e2e)', () => {
       await expect(
         prisma.user.findUnique({ where: { email } }),
       ).resolves.toBeNull();
+    });
+  });
+
+  describe('GET /organizations/me/invitations', () => {
+    it("lists only pending, unexpired invitations for the caller's org (happy path)", async () => {
+      const { orgId, token } =
+        await registerOrgAndLoginOwner('InvitesListHappy');
+      await approveOrg(orgId);
+      const pendingEmail = `pending-${Date.now()}@org-e2e.test`;
+      await createInvitation(orgId, pendingEmail, 'RECRUITER');
+      await createInvitation(
+        orgId,
+        `expired-${Date.now()}@org-e2e.test`,
+        'RECRUITER',
+        { expiresAt: new Date(Date.now() - 60_000) },
+      );
+      await createInvitation(
+        orgId,
+        `accepted-${Date.now()}@org-e2e.test`,
+        'RECRUITER',
+        { acceptedAt: new Date() },
+      );
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        email: pendingEmail,
+        role: { key: 'RECRUITER', name: 'Recruiter' },
+      });
+    });
+
+    it("does not leak another organization's pending invitations", async () => {
+      const orgA = await registerOrgAndLoginOwner('InvitesListOrgA');
+      await approveOrg(orgA.orgId);
+      await createInvitation(
+        orgA.orgId,
+        `a-${Date.now()}@org-e2e.test`,
+        'RECRUITER',
+      );
+      const orgB = await registerOrgAndLoginOwner('InvitesListOrgB');
+      await approveOrg(orgB.orgId);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${orgB.token}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(0);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/invitations')
+        .expect(401);
+    });
+
+    it('rejects a role without user:invite (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('InvitesListForbidden');
+      await approveOrg(orgId);
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/invitations')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(403);
+    });
+  });
+
+  describe('DELETE /organizations/me/invitations/:id', () => {
+    it('cancels a pending invitation (happy path)', async () => {
+      const { orgId, token } =
+        await registerOrgAndLoginOwner('InviteCancelHappy');
+      await approveOrg(orgId);
+      const email = `cancel-me-${Date.now()}@org-e2e.test`;
+      await createInvitation(orgId, email, 'RECRUITER');
+      const invitation = await prisma.invitation.findFirstOrThrow({
+        where: { organizationId: orgId, email },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/invitations/${invitation.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(204);
+
+      await expect(
+        prisma.invitation.findUnique({ where: { id: invitation.id } }),
+      ).resolves.toBeNull();
+    });
+
+    it("returns 404 for another organization's invitation", async () => {
+      const orgA = await registerOrgAndLoginOwner('InviteCancelOrgA');
+      await approveOrg(orgA.orgId);
+      const email = `orgA-invite-${Date.now()}@org-e2e.test`;
+      await createInvitation(orgA.orgId, email, 'RECRUITER');
+      const invitation = await prisma.invitation.findFirstOrThrow({
+        where: { organizationId: orgA.orgId, email },
+      });
+      const orgB = await registerOrgAndLoginOwner('InviteCancelOrgB');
+      await approveOrg(orgB.orgId);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/invitations/${invitation.id}`)
+        .set('Authorization', `Bearer ${orgB.token}`)
+        .expect(404);
+
+      await expect(
+        prisma.invitation.findUnique({ where: { id: invitation.id } }),
+      ).resolves.not.toBeNull();
+    });
+
+    it('returns 404 for an already-accepted invitation', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner(
+        'InviteCancelAccepted',
+      );
+      await approveOrg(orgId);
+      const email = `already-accepted-${Date.now()}@org-e2e.test`;
+      await createInvitation(orgId, email, 'RECRUITER', {
+        acceptedAt: new Date(),
+      });
+      const invitation = await prisma.invitation.findFirstOrThrow({
+        where: { organizationId: orgId, email },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/invitations/${invitation.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .delete('/api/v1/organizations/me/invitations/nonexistent-id')
+        .expect(401);
+    });
+
+    it('rejects a role without user:invite (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('InviteCancelForbidden');
+      await approveOrg(orgId);
+      const email = `forbidden-cancel-${Date.now()}@org-e2e.test`;
+      await createInvitation(orgId, email, 'RECRUITER');
+      const invitation = await prisma.invitation.findFirstOrThrow({
+        where: { organizationId: orgId, email },
+      });
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/invitations/${invitation.id}`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(403);
+    });
+  });
+
+  describe('DELETE /organizations/me/members/:userId', () => {
+    it("removes a teammate's access to the org (happy path)", async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('RemoveHappy');
+      await approveOrg(orgId);
+      await addRecruiterToOrgAndLogin(orgId);
+      const membership = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgId, role: { key: 'RECRUITER' } },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${membership.userId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(204);
+
+      await expect(
+        prisma.userOrganizationRole.findMany({
+          where: { organizationId: orgId, userId: membership.userId },
+        }),
+      ).resolves.toHaveLength(0);
+      // The account itself survives -- only this org's access is revoked.
+      await expect(
+        prisma.user.findUnique({ where: { id: membership.userId } }),
+      ).resolves.not.toBeNull();
+    });
+
+    it('rejects removing yourself with 409', async () => {
+      const { orgId, token } = await registerOrgAndLoginOwner('RemoveSelf');
+      await approveOrg(orgId);
+      const owner = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgId, role: { key: 'COMPANY_OWNER' } },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${owner.userId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it("rejects removing the organization's only Company Owner with 409", async () => {
+      const { orgId, token } =
+        await registerOrgAndLoginOwner('RemoveLastOwner');
+      await approveOrg(orgId);
+      // Promote a second Company Owner so the first removal (of the second
+      // owner, by the first) isn't itself blocked by the self-removal guard
+      // -- then confirm removing the one remaining owner is blocked.
+      const companyOwnerRole = await prisma.role.findUniqueOrThrow({
+        where: { key: 'COMPANY_OWNER' },
+      });
+      const passwordHash = await authService.hashPassword('password123');
+      const secondOwner = await prisma.user.create({
+        data: {
+          email: `second-owner-${Date.now()}@org-e2e.test`,
+          passwordHash,
+          fullName: 'Second Owner',
+          emailVerified: true,
+        },
+      });
+      await prisma.userOrganizationRole.create({
+        data: {
+          userId: secondOwner.id,
+          organizationId: orgId,
+          roleId: companyOwnerRole.id,
+        },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${secondOwner.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(204);
+
+      const originalOwner = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgId, role: { key: 'COMPANY_OWNER' } },
+      });
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${originalOwner.userId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(409);
+    });
+
+    it("returns 404 for another organization's member", async () => {
+      const orgA = await registerOrgAndLoginOwner('RemoveOrgA');
+      await approveOrg(orgA.orgId);
+      await addRecruiterToOrgAndLogin(orgA.orgId);
+      const membership = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgA.orgId, role: { key: 'RECRUITER' } },
+      });
+      const orgB = await registerOrgAndLoginOwner('RemoveOrgB');
+      await approveOrg(orgB.orgId);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${membership.userId}`)
+        .set('Authorization', `Bearer ${orgB.token}`)
+        .expect(404);
+
+      await expect(
+        prisma.userOrganizationRole.findMany({
+          where: { organizationId: orgA.orgId, userId: membership.userId },
+        }),
+      ).resolves.toHaveLength(1);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .delete('/api/v1/organizations/me/members/nonexistent-id')
+        .expect(401);
+    });
+
+    it('rejects a role without user:remove (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await registerOrgAndLoginOwner('RemoveForbidden');
+      await approveOrg(orgId);
+      const recruiterToken = await addRecruiterToOrgAndLogin(orgId);
+      const membership = await prisma.userOrganizationRole.findFirstOrThrow({
+        where: { organizationId: orgId, role: { key: 'RECRUITER' } },
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/organizations/me/members/${membership.userId}`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(403);
     });
   });
 });
