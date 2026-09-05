@@ -19,6 +19,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { TalentPoolsModule } from './talent-pools/talent-pools.module';
+import { UniversitiesModule } from './universities/universities.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { TalentPoolsModule } from './talent-pools/talent-pools.module';
     NotificationsModule,
     SubscriptionsModule,
     TalentPoolsModule,
+    UniversitiesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

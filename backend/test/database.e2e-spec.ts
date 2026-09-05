@@ -75,6 +75,9 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'payment:read',
     'analytics:platform',
     'auditLog:read',
+    // Q31 (docs/open-questions.md): a new permission (not a missing grant
+    // of an existing one).
+    'university:manage',
   ],
   // "all org-scoped permissions below" (Recruiter/Hiring Manager/Interviewer/
   // HR Manager) plus the Company-Owner-specific additions.
@@ -105,6 +108,9 @@ const EXPECTED_ROLE_PERMISSIONS: Record<string, string[]> = {
     'user:remove',
     'subscription:manage',
     'role:assign',
+    // Q31 (docs/open-questions.md): a new permission (not a missing grant
+    // of an existing one).
+    'university:partner',
   ],
 };
 

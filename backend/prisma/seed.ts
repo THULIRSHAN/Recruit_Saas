@@ -92,6 +92,9 @@ const COMPANY_OWNER_PERMISSIONS = [
     'user:remove',
     'subscription:manage',
     'role:assign',
+    // New permission (not a missing grant of an existing one) -- see
+    // docs/open-questions.md Q31.
+    'university:partner',
   ]),
 ];
 
@@ -104,6 +107,9 @@ const SUPER_ADMIN_PERMISSIONS = [
   'payment:read',
   'analytics:platform',
   'auditLog:read',
+  // New permission (not a missing grant of an existing one) -- see
+  // docs/open-questions.md Q31.
+  'university:manage',
 ];
 
 const ROLES: {

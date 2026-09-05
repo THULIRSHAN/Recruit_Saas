@@ -240,7 +240,14 @@ Full detail is given here for the requirements that gate every later phase. The 
 - **Business rules:** A candidate can be tagged into any number of pools, and a pool can hold any number of candidates (`@@id([talentPoolId, candidateId])` in the schema prevents only exact duplicates). No candidate-facing surface exists — a candidate is never notified of being pooled, per the schema (`TalentPoolCandidate` has no relation to `Notification`) and REQ-POOL-001's actor being Recruiter-only.
 - **Priority:** P2
 
-*(REQ-UNI, REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
+#### REQ-UNI-001 — University Partnerships
+
+- **Actors:** Super Admin manages the platform-wide `University` catalog (a shared list, the way `Plan` is); Company Owner manages their own organization's `UniversityPartnership` links into that catalog.
+- **Main flow:** `GET /universities` is a public catalog (no auth — same reasoning as `GET /plans`, no tenant data exposed). Super Admin adds new universities to it (`POST /universities`). Separately, a Company Owner reads and manages their org's own partnerships against that catalog (`GET`/`POST /organizations/me/partnerships`, `DELETE /organizations/me/partnerships/:universityId`) — referencing a `universityId` that must already exist in the catalog (422 if not, same "invalid reference in the request body" shape as Q18/Q30).
+- **Business rules:** One partnership per (org, university) pair (`@@unique([organizationId, universityId])` in the schema) — 409 on a duplicate. Ending a partnership deletes the `UniversityPartnership` row; the `University` catalog entry itself is unaffected (other orgs may still be partnered with it).
+- **Priority:** P2
+
+*(REQ-ANALYTICS, REQ-AUDIT are indexed in §3.1 above; full detail will be produced at the start of their respective implementation phase per the team's phased plan in `team-plan.md`, so specification effort isn't sunk into features that may shift before we reach them.)*
 
 ---
 
