@@ -147,9 +147,12 @@ export class AuthService {
     });
 
     // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
-    // yet, so the link is logged rather than emailed.
+    // yet, so the link is logged rather than emailed. Points at the
+    // frontend page (which itself calls this GET endpoint), not the raw
+    // API path -- a human following this link lands on a real screen.
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
     this.logger.log(
-      `Verification link for ${user.email}: /api/v1/auth/verify-email?token=${rawVerificationToken}`,
+      `Verification link for ${user.email}: ${frontendUrl}/verify-email/${rawVerificationToken}`,
     );
 
     return { user, rawVerificationToken };
@@ -189,9 +192,13 @@ export class AuthService {
     });
 
     // Stubbed per docs/open-questions.md Q12 -- no email provider chosen
-    // yet, so the link is logged rather than emailed.
+    // yet, so the link is logged rather than emailed. Points at the
+    // frontend page (frontend/app/(auth)/reset-password/[token]), not the
+    // raw POST-only API path -- a clicked/pasted link can't submit a POST
+    // itself anyway.
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
     this.logger.log(
-      `Password reset link for ${user.email}: /api/v1/auth/reset-password?token=${rawToken}`,
+      `Password reset link for ${user.email}: ${frontendUrl}/reset-password/${rawToken}`,
     );
   }
 

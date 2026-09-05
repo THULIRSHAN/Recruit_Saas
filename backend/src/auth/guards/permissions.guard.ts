@@ -13,6 +13,7 @@ import {
   REQUIRE_PERMISSION_KEY,
   type RequiredPermission,
 } from '../decorators/require-permission.decorator';
+import { ORG_SCOPED_KEY } from '../decorators/org-scoped.decorator';
 import { REQUIRE_TENANT_KEY } from '../decorators/require-tenant.decorator';
 
 const FORBIDDEN_MESSAGE = 'You do not have permission to perform this action.';
@@ -76,12 +77,22 @@ export class PermissionsGuard implements CanActivate {
     // of their actual role's permissions, defeating the point of
     // @RequirePermission() on that route (found while implementing M7.4's
     // org-staff application list/screen endpoints).
-    const hasTenantScope = Boolean(
-      this.reflector.getAllAndOverride<unknown>(REQUIRE_TENANT_KEY, [
-        context.getHandler(),
-        context.getClass(),
-      ]),
-    );
+    // @OrgScoped() carries the same "this isn't a candidate-self route"
+    // signal as @RequireTenant() for routes with no :id param to check
+    // (e.g. an aggregate organizations/me/* list) -- see its own comment.
+    const hasTenantScope =
+      Boolean(
+        this.reflector.getAllAndOverride<unknown>(REQUIRE_TENANT_KEY, [
+          context.getHandler(),
+          context.getClass(),
+        ]),
+      ) ||
+      Boolean(
+        this.reflector.getAllAndOverride<unknown>(ORG_SCOPED_KEY, [
+          context.getHandler(),
+          context.getClass(),
+        ]),
+      );
     const roleKeys = [
       ...roles,
       ...(isSuperAdmin ? ['SUPER_ADMIN'] : []),

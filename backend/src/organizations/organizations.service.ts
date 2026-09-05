@@ -287,9 +287,12 @@ export class OrganizationsService {
     });
 
     // Stubbed per docs/open-questions.md Q12 -- logged, not emailed, until
-    // the team picks an email provider.
+    // the team picks an email provider. Points at the frontend page
+    // (frontend/app/(auth)/accept-invitation/[token]), not the raw
+    // POST-only API path.
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
     this.logger.log(
-      `Invitation link for ${dto.email} to join "${organization.name}" as ${role.name}: /api/v1/invitations/${rawToken}/accept`,
+      `Invitation link for ${dto.email} to join "${organization.name}" as ${role.name}: ${frontendUrl}/accept-invitation/${rawToken}`,
     );
 
     return {

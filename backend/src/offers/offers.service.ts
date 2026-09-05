@@ -13,10 +13,25 @@ import {
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOfferDto } from './dto/create-offer.dto';
+import { ListOrgOffersQueryDto } from './dto/list-org-offers-query.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 
 const OFFER_NOT_FOUND_MESSAGE = 'Offer not found.';
 const NO_ORG_CONTEXT_MESSAGE = 'No organization in session context.';
+
+const orgOfferInclude = {
+  application: {
+    select: {
+      id: true,
+      candidate: { select: { id: true, fullName: true, email: true } },
+      job: { select: { id: true, title: true } },
+    },
+  },
+} satisfies Prisma.OfferInclude;
+
+type OfferWithApplication = Prisma.OfferGetPayload<{
+  include: typeof orgOfferInclude;
+}>;
 
 @Injectable()
 export class OffersService {
@@ -74,6 +89,42 @@ export class OffersService {
       }
       throw error;
     }
+  }
+
+  // REQ-OFFER-001's implied "track every offer I've sent" view -- Offer
+  // already denormalizes organizationId (see the model comment), so this
+  // needs no traversal through Application/Job to scope it.
+  async listForOrg(orgId: string | null, query: ListOrgOffersQueryDto) {
+    const organizationId = this.requireOrgId(orgId);
+    const where = {
+      organizationId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.offer.findMany({
+        where,
+        include: orgOfferInclude,
+        orderBy: { sentAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.offer.count({ where }),
+    ]);
+
+    // Same lazy SENT->EXPIRED flip as the single-offer reads, applied to
+    // this page only (bounded by pageSize) rather than a scheduled job.
+    const expired = await Promise.all(
+      data.map(async (offer) => ({
+        ...offer,
+        ...(await this.expireIfNeeded(offer)),
+      })),
+    );
+
+    return {
+      data: expired.map((offer) => this.toOrgListDetail(offer)),
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
   }
 
   async getForJob(orgId: string | null, jobId: string, applicationId: string) {
@@ -180,6 +231,19 @@ export class OffersService {
       status: offer.status,
       sentAt: offer.sentAt,
       respondedAt: offer.respondedAt,
+    };
+  }
+
+  private toOrgListDetail(offer: OfferWithApplication) {
+    return {
+      ...this.toDetail(offer),
+      applicationId: offer.application.id,
+      candidate: {
+        id: offer.application.candidate.id,
+        fullName: offer.application.candidate.fullName,
+        email: offer.application.candidate.email,
+      },
+      job: { id: offer.application.job.id, title: offer.application.job.title },
     };
   }
 }

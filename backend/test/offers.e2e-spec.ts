@@ -72,10 +72,23 @@ describe('Offers (e2e)', () => {
       });
     }
 
+    async function revokePermission(roleId: string, key: string) {
+      const permission = await prisma.permission.findUnique({ where: { key } });
+      if (!permission) return;
+      await prisma.rolePermission.deleteMany({
+        where: { roleId, permissionId: permission.id },
+      });
+    }
+
     await grantPermission(superAdminRole.id, 'organization:approve');
     await grantPermission(recruiterRole.id, 'job:create');
     await grantPermission(recruiterRole.id, 'job:publish');
     await grantPermission(recruiterRole.id, 'pipeline:manage');
+    // Global roles are shared with every other e2e file and the real seed
+    // script against this same DB -- a prior run granting RECRUITER
+    // offer:read (it's not in RECRUITER_PERMISSIONS in prisma/seed.ts)
+    // would otherwise leak into the "wrong permission" 403 test below.
+    await revokePermission(recruiterRole.id, 'offer:read');
     await grantPermission(hiringManagerRole.id, 'application:decide');
     await grantPermission(hrManagerRole.id, 'offer:create');
     await grantPermission(hrManagerRole.id, 'offer:read');
@@ -454,6 +467,90 @@ describe('Offers (e2e)', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/applications/${applicationId}/offer/respond`)
         .send({ decision: 'ACCEPT' })
+        .expect(401);
+    });
+  });
+
+  describe('GET /organizations/me/offers', () => {
+    it("lists every offer sent by the caller's org, newest first (happy path)", async () => {
+      const { jobId, applicationId, hrToken } =
+        await setUpHiredApplication('ListHappy');
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/offer`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ title: 'Software Engineer', expiresAt: futureIso(14) });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+      expect(res.body.data[0]).toMatchObject({
+        applicationId,
+        job: { id: jobId, title: 'Software Engineer' },
+        status: 'SENT',
+      });
+      expect(res.body.data[0].candidate).toHaveProperty('fullName');
+    });
+
+    it('filters by status', async () => {
+      const { jobId, applicationId, hrToken, candidateToken } =
+        await setUpHiredApplication('ListFilter');
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/offer`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ title: 'Software Engineer', expiresAt: futureIso(14) });
+      await request(app.getHttpServer())
+        .post(`/api/v1/applications/${applicationId}/offer/respond`)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .send({ decision: 'ACCEPT' });
+
+      const sentRes = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers?status=SENT')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+      expect(sentRes.body.data).toHaveLength(0);
+
+      const acceptedRes = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers?status=ACCEPTED')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+      expect(acceptedRes.body.data).toHaveLength(1);
+    });
+
+    it("does not include another organization's offers", async () => {
+      const { jobId, applicationId, hrToken } =
+        await setUpHiredApplication('ListScopeA');
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/offer`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ title: 'Software Engineer', expiresAt: futureIso(14) });
+
+      const orgIdB = await registerAndApproveOrg('ListScopeB');
+      const hrTokenB = await addStaffAndLogin(orgIdB, 'HR_MANAGER');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers')
+        .set('Authorization', `Bearer ${hrTokenB}`)
+        .expect(200);
+
+      expect(res.body.data).toHaveLength(0);
+    });
+
+    it('rejects a role without offer:read (e.g. Recruiter) with 403', async () => {
+      const { orgId } = await setUpHiredApplication('ListForbidden');
+      const recruiterToken = await addStaffAndLogin(orgId, 'RECRUITER');
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/offers')
         .expect(401);
     });
   });
