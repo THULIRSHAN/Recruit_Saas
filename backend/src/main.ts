@@ -18,6 +18,13 @@ async function bootstrap() {
   // stable path across API versions.
   app.setGlobalPrefix('api/v1', { exclude: ['health'] });
   app.use(cookieParser());
+  // The frontend (a separate origin) sends the refresh token as an httpOnly
+  // cookie, so this must be a specific origin + credentials:true -- a
+  // wildcard origin can't be combined with credentialed requests.
+  app.enableCors({
+    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    credentials: true,
+  });
   // whitelist: strip unknown properties instead of erroring, so DTOs are the
   // single source of truth for accepted fields (CLAUDE.md rule 5).
   // forbidNonWhitelisted: reject requests carrying fields no DTO declares,

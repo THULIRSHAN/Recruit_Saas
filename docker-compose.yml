@@ -41,6 +41,7 @@ services:
       # container and lost on recreation, which is fine for a dev stub.
       STORAGE_LOCAL_DIR: ${STORAGE_LOCAL_DIR:-storage}
       STORAGE_SIGNING_SECRET: ${STORAGE_SIGNING_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     ports:
       - '${BACKEND_PORT:-3001}:3001'
 
