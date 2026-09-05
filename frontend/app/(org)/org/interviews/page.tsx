@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Card, EmptyState, Stars, Textarea } from '@/components/ui';
+import { Button, Card, CalendarIcon, EmptyState, Stars, Textarea } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { EvaluationRecommendation, MyInterview, PaginatedResponse } from '@/lib/types';
@@ -64,7 +64,7 @@ export default function InterviewerPage() {
       <div className="w-[320px] shrink-0">
         <h1 className="mb-4 font-display text-[20px] font-extrabold text-ink">My Interviews</h1>
         {interviews.length === 0 ? (
-          <EmptyState title="No interviews assigned" description="You'll see interviews here once you're added to a panel." />
+          <EmptyState icon={<CalendarIcon />} title="No interviews assigned" description="You'll see interviews here once you're added to a panel." />
         ) : (
           <div className="flex flex-col gap-2">
             {interviews.map((interview) => (

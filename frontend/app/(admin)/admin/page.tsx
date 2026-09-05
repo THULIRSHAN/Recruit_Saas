@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Card, EmptyState, StatCard } from '@/components/ui';
+import { Card, EmptyState, InboxIcon, StatCard } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { AdminOrganization, PaginatedResponse, PlatformAnalytics } from '@/lib/types';
@@ -42,7 +42,7 @@ export default function AdminOverviewPage() {
             </Link>
           </div>
           {pending === null ? null : pending.length === 0 ? (
-            <EmptyState title="Nothing pending" />
+            <EmptyState icon={<InboxIcon size={20} />} title="Nothing pending" />
           ) : (
             <div className="flex flex-col gap-2">
               {pending.map((org) => (

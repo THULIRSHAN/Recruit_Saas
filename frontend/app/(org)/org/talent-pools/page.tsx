@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Button, Card, EmptyState, Input } from '@/components/ui';
+import { Button, Card, EmptyState, Input, UsersIcon } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import type { TalentPool } from '@/lib/types';
 
@@ -49,6 +49,7 @@ export default function TalentPoolsPage() {
 
       {pools === null ? null : pools.length === 0 ? (
         <EmptyState
+          icon={<UsersIcon />}
           title="No talent pools yet"
           description="Create a pool, then tag candidates into it from an application's detail page."
         />

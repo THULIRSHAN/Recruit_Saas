@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Badge, Card, EmptyState } from '@/components/ui';
+import { Badge, BellIcon, Card, EmptyState } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import type { AppNotification, PaginatedResponse } from '@/lib/types';
@@ -41,7 +41,7 @@ export function NotificationsList() {
   }
 
   if (notifications.length === 0) {
-    return <EmptyState title="No notifications" description="You're all caught up." />;
+    return <EmptyState icon={<BellIcon />} title="No notifications" description="You're all caught up." />;
   }
 
   return (

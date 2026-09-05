@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Card, EmptyState } from '@/components/ui';
+import { Badge, Card, EmptyState, InboxIcon } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Application, PaginatedResponse } from '@/lib/types';
@@ -26,7 +26,7 @@ export default function ApplicationsListPage() {
       <h1 className="mb-6 font-display text-[24px] font-extrabold text-ink">My Applications</h1>
 
       {applications === null ? null : applications.length === 0 ? (
-        <EmptyState title="No applications yet" description="Browse open roles and apply to get started." />
+        <EmptyState icon={<InboxIcon />} title="No applications yet" description="Browse open roles and apply to get started." />
       ) : (
         <Card padded={false} className="overflow-hidden">
           <table className="w-full text-[13px]">

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, EmptyState, StatCard } from '@/components/ui';
+import { Badge, BriefcaseIcon, Button, Card, EmptyState, StatCard } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { PaginatedResponse } from '@/lib/types';
 
@@ -88,6 +88,7 @@ export default function OrgDashboardPage() {
 
       {jobs === null ? null : jobs.length === 0 ? (
         <EmptyState
+          icon={<BriefcaseIcon />}
           title="No jobs yet"
           description="Post your first job to start receiving applications."
           action={

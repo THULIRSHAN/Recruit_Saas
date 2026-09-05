@@ -2,26 +2,32 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Avatar } from '@/components/ui';
+import { useState } from 'react';
+import { Avatar, BellIcon, ConfirmDialog } from '@/components/ui';
 import { useAuth } from '@/lib/auth-context';
 
 export interface NavItem {
   label: string;
   href: string;
+  icon?: React.ReactNode;
 }
 
 interface AppShellProps {
   items: NavItem[];
   orgLabel?: React.ReactNode;
+  notificationsHref?: string;
   children: React.ReactNode;
 }
 
-export function AppShell({ items, orgLabel, children }: AppShellProps) {
+export function AppShell({ items, orgLabel, notificationsHref, children }: AppShellProps) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleLogout() {
+    setLoggingOut(true);
     await logout();
     router.push('/login');
   }
@@ -51,10 +57,11 @@ export function AppShell({ items, orgLabel, children }: AppShellProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`rounded-[9px] px-3 py-2.5 text-[13.5px] font-semibold ${
+                className={`flex items-center gap-2.5 rounded-[9px] px-3 py-2.5 text-[13.5px] font-semibold ${
                   active ? 'bg-accent-soft text-accent' : 'text-ink-soft hover:bg-surface-alt'
                 }`}
               >
+                {item.icon}
                 {item.label}
               </Link>
             );
@@ -68,7 +75,7 @@ export function AppShell({ items, orgLabel, children }: AppShellProps) {
             </div>
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={() => setConfirmingLogout(true)}
               className="text-[11.5px] font-semibold text-ink-faint hover:text-danger"
             >
               Log out
@@ -77,8 +84,31 @@ export function AppShell({ items, orgLabel, children }: AppShellProps) {
         </div>
       </aside>
       <div className="flex flex-1 flex-col">
+        {notificationsHref && (
+          <header className="flex h-[60px] shrink-0 items-center justify-end border-b border-border bg-surface px-6">
+            <Link
+              href={notificationsHref}
+              aria-label="Notifications"
+              className={`flex h-9 w-9 items-center justify-center rounded-[9px] ${
+                pathname === notificationsHref ? 'bg-accent-soft text-accent' : 'text-ink-soft hover:bg-surface-alt'
+              }`}
+            >
+              <BellIcon size={18} />
+            </Link>
+          </header>
+        )}
         <main className="flex-1">{children}</main>
       </div>
+      <ConfirmDialog
+        open={confirmingLogout}
+        title="Log out?"
+        description="You'll need to log back in to access your account."
+        confirmLabel="Log out"
+        variant="danger"
+        confirming={loggingOut}
+        onConfirm={handleLogout}
+        onCancel={() => setConfirmingLogout(false)}
+      />
     </div>
   );
 }

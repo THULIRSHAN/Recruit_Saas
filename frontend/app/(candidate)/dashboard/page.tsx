@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Card, EmptyState, StatCard } from '@/components/ui';
+import { Badge, Card, EmptyState, InboxIcon, StatCard } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Application, CandidateProfile, PaginatedResponse } from '@/lib/types';
@@ -56,6 +56,7 @@ export default function CandidateDashboardPage() {
 
         {applications === null ? null : applications.length === 0 ? (
           <EmptyState
+            icon={<InboxIcon />}
             title="No applications yet"
             description="Browse open roles and apply to get started."
             action={

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Card, EmptyState } from '@/components/ui';
+import { Card, EmptyState, GiftIcon } from '@/components/ui';
 import { api } from '@/lib/api';
 import type { Application, PaginatedResponse } from '@/lib/types';
 
@@ -20,7 +20,7 @@ export default function OffersListPage() {
       <h1 className="mb-6 font-display text-[24px] font-extrabold text-ink">Offers</h1>
 
       {applications === null ? null : applications.length === 0 ? (
-        <EmptyState title="No offers yet" description="Offers will appear here once you've reached that stage." />
+        <EmptyState icon={<GiftIcon />} title="No offers yet" description="Offers will appear here once you've reached that stage." />
       ) : (
         <div className="flex flex-col gap-3">
           {applications.map((app) => (

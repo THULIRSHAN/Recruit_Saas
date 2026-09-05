@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Select } from '@/components/ui';
+import { Badge, Button, Card, CheckIcon, ConfirmDialog, Select } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Evaluation, OrgApplication, RecruitmentStage, TalentPool } from '@/lib/types';
@@ -23,6 +23,7 @@ export default function ApplicationDetailPage() {
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  const [confirmingReject, setConfirmingReject] = useState<'screen' | 'decide' | null>(null);
 
   function load() {
     api.get<OrgApplication>(`/jobs/${id}/applications/${appId}`).then(setApplication);
@@ -43,6 +44,7 @@ export default function ApplicationDetailPage() {
         decision,
       });
       setApplication(updated);
+      setConfirmingReject(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
     } finally {
@@ -58,6 +60,7 @@ export default function ApplicationDetailPage() {
         decision,
       });
       setApplication(updated);
+      setConfirmingReject(null);
       if (decision === 'HIRE') {
         router.push(`/org/jobs/${id}/applications/${appId}/offer`);
       }
@@ -106,7 +109,7 @@ export default function ApplicationDetailPage() {
                           : 'bg-surface-alt text-ink-faint'
                     }`}
                   >
-                    {i < currentStageIndex ? '✓' : i + 1}
+                    {i < currentStageIndex ? <CheckIcon size={12} /> : i + 1}
                   </div>
                   <span className={`text-[11.5px] ${i === currentStageIndex ? 'font-bold text-ink' : 'text-ink-soft'}`}>
                     {stage.name}
@@ -165,7 +168,7 @@ export default function ApplicationDetailPage() {
             <Button variant="success" disabled={acting} onClick={() => screen('PASS')}>
               Advance to next stage
             </Button>
-            <Button variant="danger" disabled={acting} onClick={() => screen('REJECT')}>
+            <Button variant="danger" disabled={acting} onClick={() => setConfirmingReject('screen')}>
               Reject candidate
             </Button>
           </div>
@@ -175,7 +178,7 @@ export default function ApplicationDetailPage() {
             <Button variant="success" disabled={acting} onClick={() => decide('HIRE')}>
               Advance to Offer
             </Button>
-            <Button variant="danger" disabled={acting} onClick={() => decide('REJECT')}>
+            <Button variant="danger" disabled={acting} onClick={() => setConfirmingReject('decide')}>
               Reject candidate
             </Button>
           </div>
@@ -199,6 +202,17 @@ export default function ApplicationDetailPage() {
 
         <AddToTalentPool candidateId={application.candidate.id} />
       </div>
+
+      <ConfirmDialog
+        open={confirmingReject !== null}
+        title="Reject this candidate?"
+        description={`${application.candidate.fullName} will be marked as rejected and removed from this job's active pipeline.`}
+        confirmLabel="Reject"
+        variant="danger"
+        confirming={acting}
+        onConfirm={() => (confirmingReject === 'screen' ? screen('REJECT') : decide('REJECT'))}
+        onCancel={() => setConfirmingReject(null)}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Divider } from '@/components/ui';
+import { Badge, Button, Card, ConfirmDialog, Divider } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Application } from '@/lib/types';
@@ -21,6 +21,7 @@ export default function ApplicationDetailPage() {
   const [application, setApplication] = useState<Application | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [confirmingWithdraw, setConfirmingWithdraw] = useState(false);
 
   useEffect(() => {
     api.get<Application>(`/applications/${id}`).then(setApplication).catch(() => setApplication(null));
@@ -32,6 +33,7 @@ export default function ApplicationDetailPage() {
     try {
       const updated = await api.post<Application>(`/applications/${application.id}/withdraw`);
       setApplication(updated);
+      setConfirmingWithdraw(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
     } finally {
@@ -97,8 +99,8 @@ export default function ApplicationDetailPage() {
           </Link>
         )}
         {application.status === 'ACTIVE' && (
-          <Button variant="danger" onClick={handleWithdraw} disabled={withdrawing}>
-            {withdrawing ? 'Withdrawing…' : 'Withdraw application'}
+          <Button variant="danger" onClick={() => setConfirmingWithdraw(true)}>
+            Withdraw application
           </Button>
         )}
       </div>
@@ -111,6 +113,17 @@ export default function ApplicationDetailPage() {
           <p className="text-[13px] text-ink">{application.cv.fileName}</p>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={confirmingWithdraw}
+        title="Withdraw this application?"
+        description={`You won't be able to reapply to ${application.job.title} while this application is active.`}
+        confirmLabel="Withdraw"
+        variant="danger"
+        confirming={withdrawing}
+        onConfirm={handleWithdraw}
+        onCancel={() => setConfirmingWithdraw(false)}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Avatar, Card, EmptyState } from '@/components/ui';
+import { Avatar, Card, EmptyState, UsersIcon } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { TalentPool } from '@/lib/types';
@@ -36,6 +36,7 @@ export default function TalentPoolDetailPage() {
 
       {pool.candidates.length === 0 ? (
         <EmptyState
+          icon={<UsersIcon />}
           title="No candidates tagged yet"
           description="Tag a candidate into this pool from their application detail page."
         />

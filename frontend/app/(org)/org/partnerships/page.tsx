@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Card, EmptyState, Select } from '@/components/ui';
+import { Button, Card, EmptyState, SchoolIcon, Select } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { University, UniversityPartnership } from '@/lib/types';
@@ -66,7 +66,7 @@ export default function PartnershipsPage() {
       </Card>
 
       {partnerships === null ? null : partnerships.length === 0 ? (
-        <EmptyState title="No partnerships yet" description="Partner with a university to source candidates." />
+        <EmptyState icon={<SchoolIcon />} title="No partnerships yet" description="Partner with a university to source candidates." />
       ) : (
         <div className="flex flex-col gap-2">
           {partnerships.map((p) => (

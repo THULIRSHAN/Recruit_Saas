@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Card, EmptyState, Input } from '@/components/ui';
+import { Button, Card, EmptyState, Input, SchoolIcon } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import type { University } from '@/lib/types';
 
@@ -47,7 +47,7 @@ export default function AdminUniversitiesPage() {
       </Card>
 
       {universities === null ? null : universities.length === 0 ? (
-        <EmptyState title="No universities in the catalog yet" />
+        <EmptyState icon={<SchoolIcon />} title="No universities in the catalog yet" />
       ) : (
         <div className="flex flex-col gap-2">
           {universities.map((u) => (

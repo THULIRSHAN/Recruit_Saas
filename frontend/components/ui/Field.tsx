@@ -27,8 +27,15 @@ export function Field({ label, hint, error, children, className }: FieldProps) {
 const inputBase =
   'h-[42px] w-full rounded-[9px] border border-border bg-surface px-3.5 text-[13.5px] text-ink placeholder:text-ink-faint outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft disabled:cursor-not-allowed disabled:opacity-60';
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(inputBase, className)} {...props} />;
+// React 19: function components accept `ref` as a plain prop, no
+// forwardRef needed -- just typed explicitly since InputHTMLAttributes
+// doesn't include it.
+export function Input({
+  className,
+  ref,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }) {
+  return <input ref={ref} className={cn(inputBase, className)} {...props} />;
 }
 
 export function Textarea({

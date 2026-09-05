@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, EmptyState } from '@/components/ui';
+import { Badge, BriefcaseIcon, Button, Card, EmptyState } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Job, PaginatedResponse } from '@/lib/types';
@@ -31,7 +31,7 @@ export default function JobsListPage() {
       </div>
 
       {jobs === null ? null : jobs.length === 0 ? (
-        <EmptyState title="No jobs yet" description="Post your first job to start receiving applications." />
+        <EmptyState icon={<BriefcaseIcon />} title="No jobs yet" description="Post your first job to start receiving applications." />
       ) : (
         <Card padded={false} className="overflow-hidden">
           <table className="w-full text-[13px]">

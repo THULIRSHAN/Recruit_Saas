@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, EmptyState, Textarea } from '@/components/ui';
+import { Badge, BuildingIcon, Button, Card, EmptyState, Textarea } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { AdminOrganization, OrganizationStatus, PaginatedResponse } from '@/lib/types';
@@ -86,7 +86,7 @@ export default function AdminOrganizationsPage() {
       </div>
 
       {orgs === null ? null : orgs.length === 0 ? (
-        <EmptyState title={`No ${TABS.find((t) => t.key === tab)?.label.toLowerCase()} organizations`} />
+        <EmptyState icon={<BuildingIcon />} title={`No ${TABS.find((t) => t.key === tab)?.label.toLowerCase()} organizations`} />
       ) : (
         <div className="flex gap-6">
           <div className="flex w-[320px] shrink-0 flex-col gap-2">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Card, EmptyState, Input } from '@/components/ui';
+import { Button, Card, EmptyState, Input, ListIcon } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import type { PaginatedResponse, PipelineTemplate } from '@/lib/types';
 
@@ -87,7 +87,7 @@ export default function PipelineTemplatesPage() {
       </Card>
 
       {templates === null ? null : templates.length === 0 ? (
-        <EmptyState title="No templates yet" description="Create one above to reuse it across jobs." />
+        <EmptyState icon={<ListIcon />} title="No templates yet" description="Create one above to reuse it across jobs." />
       ) : (
         <div className="flex flex-col gap-2">
           {templates.map((template) => (

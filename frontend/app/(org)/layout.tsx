@@ -1,19 +1,26 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  BriefcaseIcon,
+  CalendarIcon,
+  DashboardIcon,
+  GearIcon,
+  ListIcon,
+  SchoolIcon,
+  UsersIcon,
+} from '@/components/ui';
 import { OrgProvider, useOrg } from '@/lib/org-context';
 import { useRequireAuth } from '@/lib/use-require-auth';
 
 const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/org' },
-  { label: 'Jobs', href: '/org/jobs' },
-  { label: 'Pipeline Templates', href: '/org/pipeline-templates' },
-  { label: 'Interviews', href: '/org/interviews' },
-  { label: 'Talent Pools', href: '/org/talent-pools' },
-  { label: 'University Partners', href: '/org/partnerships' },
-  { label: 'Team', href: '/org/team' },
-  { label: 'Subscription', href: '/org/subscription' },
-  { label: 'Notifications', href: '/org/notifications' },
+  { label: 'Dashboard', href: '/org', icon: <DashboardIcon /> },
+  { label: 'Jobs', href: '/org/jobs', icon: <BriefcaseIcon /> },
+  { label: 'Pipeline Templates', href: '/org/pipeline-templates', icon: <ListIcon /> },
+  { label: 'Interviews', href: '/org/interviews', icon: <CalendarIcon /> },
+  { label: 'Talent Pools', href: '/org/talent-pools', icon: <UsersIcon /> },
+  { label: 'University Partners', href: '/org/partnerships', icon: <SchoolIcon /> },
+  { label: 'Settings', href: '/org/settings', icon: <GearIcon /> },
 ];
 
 function OrgLabel() {
@@ -57,7 +64,7 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <OrgProvider>
-      <AppShell items={NAV_ITEMS} orgLabel={<OrgLabel />}>
+      <AppShell items={NAV_ITEMS} orgLabel={<OrgLabel />} notificationsHref="/org/notifications">
         <OrgGate>{children}</OrgGate>
       </AppShell>
     </OrgProvider>

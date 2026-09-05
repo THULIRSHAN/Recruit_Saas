@@ -1,13 +1,13 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
+import { BuildingIcon, DashboardIcon, SchoolIcon } from '@/components/ui';
 import { useRequireAuth } from '@/lib/use-require-auth';
 
 const NAV_ITEMS = [
-  { label: 'Overview', href: '/admin' },
-  { label: 'Organizations', href: '/admin/organizations' },
-  { label: 'Universities', href: '/admin/universities' },
-  { label: 'Notifications', href: '/admin/notifications' },
+  { label: 'Overview', href: '/admin', icon: <DashboardIcon /> },
+  { label: 'Organizations', href: '/admin/organizations', icon: <BuildingIcon /> },
+  { label: 'Universities', href: '/admin/universities', icon: <SchoolIcon /> },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -17,5 +17,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return <div className="flex flex-1 items-center justify-center text-ink-soft">Loading…</div>;
   }
 
-  return <AppShell items={NAV_ITEMS}>{children}</AppShell>;
+  return (
+    <AppShell items={NAV_ITEMS} notificationsHref="/admin/notifications">
+      {children}
+    </AppShell>
+  );
 }
