@@ -2,7 +2,17 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, BriefcaseIcon, Button, Card, EmptyState, StatCard } from '@/components/ui';
+import {
+  Badge,
+  BriefcaseIcon,
+  Button,
+  CalendarIcon,
+  Card,
+  EmptyState,
+  GiftIcon,
+  ListIcon,
+  StatCard,
+} from '@/components/ui';
 import { api } from '@/lib/api';
 import type { PaginatedResponse } from '@/lib/types';
 
@@ -53,10 +63,10 @@ export default function OrgDashboardPage() {
       </div>
 
       <div className="mb-8 grid grid-cols-4 gap-4">
-        <StatCard label="Active jobs" value={analytics?.jobs.byStatus.PUBLISHED ?? 0} />
-        <StatCard label="Total applicants" value={analytics?.applications.total ?? 0} />
-        <StatCard label="Interviews" value={analytics?.interviews.total ?? 0} />
-        <StatCard label="Offers" value={analytics?.offers.total ?? 0} />
+        <StatCard label="Active jobs" value={analytics?.jobs.byStatus.PUBLISHED ?? 0} icon={<BriefcaseIcon size={15} />} tone="accent" />
+        <StatCard label="Total applicants" value={analytics?.applications.total ?? 0} icon={<ListIcon size={15} />} tone="info" />
+        <StatCard label="Interviews" value={analytics?.interviews.total ?? 0} icon={<CalendarIcon size={15} />} tone="warning" />
+        <StatCard label="Offers" value={analytics?.offers.total ?? 0} icon={<GiftIcon size={15} />} tone="success" />
       </div>
 
       {applicationSegments.length > 0 && (

@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Badge, Card, EmptyState, InboxIcon, StatCard } from '@/components/ui';
+import {
+  Badge,
+  CalendarIcon,
+  Card,
+  ChevronRightIcon,
+  EmptyState,
+  GiftIcon,
+  InboxIcon,
+  StatCard,
+} from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Application, CandidateProfile, PaginatedResponse } from '@/lib/types';
@@ -42,9 +51,14 @@ export default function CandidateDashboardPage() {
         </p>
 
         <div className="mb-8 grid grid-cols-3 gap-4">
-          <StatCard label="Active applications" value={active} />
-          <StatCard label="Interview stage" value={applications?.filter((a) => a.stage.name.toLowerCase().includes('interview')).length ?? 0} />
-          <StatCard label="Offers received" value={hired} />
+          <StatCard label="Active applications" value={active} icon={<InboxIcon size={15} />} tone="accent" />
+          <StatCard
+            label="Interview stage"
+            value={applications?.filter((a) => a.stage.name.toLowerCase().includes('interview')).length ?? 0}
+            icon={<CalendarIcon size={15} />}
+            tone="info"
+          />
+          <StatCard label="Offers received" value={hired} icon={<GiftIcon size={15} />} tone="success" />
         </div>
 
         <div className="mb-3 flex items-center justify-between">
@@ -74,6 +88,7 @@ export default function CandidateDashboardPage() {
                   <th className="px-4 py-2.5">Applied</th>
                   <th className="px-4 py-2.5">Stage</th>
                   <th className="px-4 py-2.5">Updated</th>
+                  <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
@@ -90,6 +105,11 @@ export default function CandidateDashboardPage() {
                       <Badge variant={STAGE_BADGE[app.status]}>{app.stage.name}</Badge>
                     </td>
                     <td className="px-4 py-3 text-ink-soft">{formatDate(app.updatedAt)}</td>
+                    <td className="px-4 py-3 text-ink-faint">
+                      <Link href={`/dashboard/applications/${app.id}`}>
+                        <ChevronRightIcon />
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

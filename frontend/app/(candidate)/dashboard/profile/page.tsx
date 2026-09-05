@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, Field, Input } from '@/components/ui';
+import { Badge, Button, Card, DownloadIcon, Field, Input, PlusIcon, TrashIcon } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type {
@@ -79,6 +79,13 @@ export default function CandidateProfilePage() {
   async function deleteCv(id: string) {
     await api.delete(`/candidates/me/cvs/${id}`);
     load();
+  }
+
+  async function downloadCv(id: string) {
+    const { url } = await api.get<{ url: string; expiresAt: string }>(`/candidates/me/cvs/${id}/signed-url`);
+    // Relative path from the backend (see LocalStorageService.getSignedUrl) --
+    // the browser needs the backend's own origin, not the frontend's.
+    window.open(`${process.env.NEXT_PUBLIC_API_URL}${url}`, '_blank');
   }
 
   async function updateEducation(items: CandidateEducation[]) {
@@ -171,7 +178,7 @@ export default function CandidateProfilePage() {
                   <div className="text-[13px] font-semibold text-ink">{cv.fileName}</div>
                   <div className="text-[11.5px] text-ink-faint">Uploaded {formatDate(cv.uploadedAt)}</div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   {cv.isPrimary ? (
                     <Badge variant="accent">Primary</Badge>
                   ) : (
@@ -179,8 +186,11 @@ export default function CandidateProfilePage() {
                       Make primary
                     </button>
                   )}
-                  <button onClick={() => deleteCv(cv.id)} className="text-[11.5px] font-bold text-danger">
-                    Delete
+                  <button onClick={() => downloadCv(cv.id)} aria-label="Download" className="text-ink-faint hover:text-accent">
+                    <DownloadIcon />
+                  </button>
+                  <button onClick={() => deleteCv(cv.id)} aria-label="Delete" className="text-ink-faint hover:text-danger">
+                    <TrashIcon />
                   </button>
                 </div>
               </div>
@@ -446,13 +456,14 @@ function SkillsEditor({
             </button>
           </span>
         ))}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 rounded-full border border-dashed border-border pl-2.5 pr-1">
+          <PlusIcon size={12} className="text-ink-faint" />
           <input
             value={newSkill}
             onChange={(e) => setNewSkill(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
             placeholder="Add skill"
-            className="w-28 rounded-full border border-dashed border-border px-3 py-1.5 text-[12.5px] outline-none focus:border-accent"
+            className="w-24 py-1.5 text-[12.5px] outline-none"
           />
         </div>
       </div>

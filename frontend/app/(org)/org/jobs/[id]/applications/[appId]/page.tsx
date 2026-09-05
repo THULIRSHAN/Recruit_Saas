@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, CheckIcon, ConfirmDialog, Select } from '@/components/ui';
+import { Badge, Button, Card, CheckIcon, ConfirmDialog, Select, Stars } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
 import { formatDate } from '@/lib/format';
 import type { Evaluation, OrgApplication, RecruitmentStage, TalentPool } from '@/lib/types';
@@ -147,11 +147,12 @@ export default function ApplicationDetailPage() {
                       {RECOMMENDATION_LABEL[ev.recommendation]}
                     </Badge>
                   </div>
-                  <div className="mb-1 flex flex-wrap gap-2 text-[11.5px] text-ink-soft">
+                  <div className="mb-1 flex flex-wrap gap-x-4 gap-y-1.5">
                     {Object.entries(ev.scores).map(([key, score]) => (
-                      <span key={key}>
-                        {key}: {score}/5
-                      </span>
+                      <div key={key} className="flex items-center gap-1.5">
+                        <span className="text-[11.5px] text-ink-soft">{key}</span>
+                        <Stars value={score} size={11} />
+                      </div>
                     ))}
                   </div>
                   {ev.comment && <p className="text-[12.5px] text-ink-soft">{ev.comment}</p>}
@@ -197,7 +198,10 @@ export default function ApplicationDetailPage() {
         </Card>
         <Card className="mb-4">
           <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Application details</div>
-          <p className="text-[12.5px] text-ink-soft">Applied {formatDate(application.appliedAt)}</p>
+          <p className="mb-2 text-[12.5px] text-ink-soft">Applied {formatDate(application.appliedAt)}</p>
+          <Link href={`/org/jobs/${id}/edit`} className="text-[12px] font-bold text-accent">
+            View job posting →
+          </Link>
         </Card>
 
         <AddToTalentPool candidateId={application.candidate.id} />
