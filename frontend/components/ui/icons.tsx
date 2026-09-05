@@ -200,6 +200,33 @@ export function ChevronRightIcon({ size = 14, className }: IconProps) {
   );
 }
 
+export function OfferIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
+      <line x1="21" y1="3" x2="10.5" y2="13.5" />
+      <polygon points="21,3 14,21 10.5,13.5 3,10" />
+    </svg>
+  );
+}
+
+export function ClockIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
+      <circle cx="12" cy="12" r="8.5" />
+      <polyline points="12,7.5 12,12 15.2,14" />
+    </svg>
+  );
+}
+
+export function XCircleIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
+  );
+}
+
 export function AlertIcon({ size = 24, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>

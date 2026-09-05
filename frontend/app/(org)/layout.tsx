@@ -7,6 +7,7 @@ import {
   DashboardIcon,
   GearIcon,
   ListIcon,
+  OfferIcon,
   SchoolIcon,
   UsersIcon,
 } from '@/components/ui';
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { label: 'Jobs', href: '/org/jobs', icon: <BriefcaseIcon /> },
   { label: 'Pipeline Templates', href: '/org/pipeline-templates', icon: <ListIcon /> },
   { label: 'Interviews', href: '/org/interviews', icon: <CalendarIcon /> },
+  { label: 'Offers', href: '/org/offers', icon: <OfferIcon /> },
   { label: 'Talent Pools', href: '/org/talent-pools', icon: <UsersIcon /> },
   { label: 'University Partners', href: '/org/partnerships', icon: <SchoolIcon /> },
   { label: 'Settings', href: '/org/settings', icon: <GearIcon /> },

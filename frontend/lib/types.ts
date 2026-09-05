@@ -47,6 +47,14 @@ export interface Offer {
   respondedAt: string | null;
 }
 
+// Mirrors backend/src/offers/offers.service.ts's toOrgListDetail() -- the
+// GET /organizations/me/offers shape, an Offer plus who/what it's for.
+export interface OrgOffer extends Offer {
+  applicationId: string;
+  candidate: { id: string; fullName: string; email: string };
+  job: { id: string; title: string };
+}
+
 export interface CandidateCv {
   id: string;
   fileName: string;
