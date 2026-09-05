@@ -40,7 +40,7 @@ describe('Analytics (e2e)', () => {
     });
     // No analytics:read -- used for the "correct org, wrong permission"
     // 403 test.
-    await prisma.role.upsert({
+    const hiringManagerRole = await prisma.role.upsert({
       where: { key: 'HIRING_MANAGER' },
       update: {},
       create: { key: 'HIRING_MANAGER', name: 'Hiring Manager' },
@@ -63,6 +63,21 @@ describe('Analytics (e2e)', () => {
         create: { roleId, permissionId: permission.id },
       });
     }
+
+    async function revokePermission(roleId: string, key: string) {
+      const permission = await prisma.permission.findUnique({ where: { key } });
+      if (!permission) return;
+      await prisma.rolePermission.deleteMany({
+        where: { roleId, permissionId: permission.id },
+      });
+    }
+
+    // Global roles are shared with every other e2e file and the real seed
+    // script against this same DB (Jest doesn't guarantee cross-file/cross-
+    // run ordering) -- a prior run granting HIRING_MANAGER analytics:read
+    // (e.g. via database.e2e-spec.ts exercising the seed script) would
+    // otherwise leak into this file's "wrong permission" 403 test.
+    await revokePermission(hiringManagerRole.id, 'analytics:read');
 
     await grantPermission(superAdminRole.id, 'organization:approve');
     await grantPermission(superAdminRole.id, 'analytics:platform');
