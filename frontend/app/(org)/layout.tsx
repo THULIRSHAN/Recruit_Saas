@@ -7,9 +7,11 @@ import { useRequireAuth } from '@/lib/use-require-auth';
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/org' },
   { label: 'Jobs', href: '/org/jobs' },
+  { label: 'Pipeline Templates', href: '/org/pipeline-templates' },
   { label: 'Interviews', href: '/org/interviews' },
   { label: 'Talent Pools', href: '/org/talent-pools' },
   { label: 'University Partners', href: '/org/partnerships' },
+  { label: 'Team', href: '/org/team' },
   { label: 'Subscription', href: '/org/subscription' },
   { label: 'Notifications', href: '/org/notifications' },
 ];
