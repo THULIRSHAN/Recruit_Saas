@@ -57,6 +57,9 @@ export function LoginForm() {
             placeholder="••••••••"
           />
         </Field>
+        <Link href="/forgot-password" className="-mt-2 self-end text-[12px] font-semibold text-accent">
+          Forgot password?
+        </Link>
         {error && <p className="text-[12.5px] text-danger">{error}</p>}
         <Button type="submit" size="lg" block disabled={submitting}>
           {submitting ? 'Logging in…' : 'Log in'}
