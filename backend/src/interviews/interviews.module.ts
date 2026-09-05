@@ -5,6 +5,7 @@ import { InterviewsController } from './interviews.controller';
 import { InterviewsService } from './interviews.service';
 import { JobApplicationEvaluationsController } from './job-application-evaluations.controller';
 import { JobApplicationInterviewsController } from './job-application-interviews.controller';
+import { OrgInterviewsController } from './org-interviews.controller';
 
 @Module({
   imports: [ApplicationsModule, NotificationsModule],
@@ -12,6 +13,7 @@ import { JobApplicationInterviewsController } from './job-application-interviews
     InterviewsController,
     JobApplicationInterviewsController,
     JobApplicationEvaluationsController,
+    OrgInterviewsController,
   ],
   providers: [InterviewsService],
 })

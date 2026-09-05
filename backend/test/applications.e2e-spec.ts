@@ -828,4 +828,89 @@ describe('ApplicationsController (e2e)', () => {
         .expect(401);
     });
   });
+
+  describe('GET /organizations/me/applications', () => {
+    it('lists applications across every job in the org, newest first (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('OrgListHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('OrgListHappy');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(
+        (res.body.data as Array<{ id: string; job: { id: string } }>).find(
+          (a) => a.id === appId,
+        ),
+      ).toMatchObject({ job: { id: jobId } });
+      expect(res.body.meta).toMatchObject({ page: 1, pageSize: 20 });
+    });
+
+    it('is readable by a Hiring Manager (application:read, not just Recruiter)', async () => {
+      const orgId = await registerAndApproveOrg('OrgListHm');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('OrgListHm');
+      await uploadCv(candidateToken);
+      await applyToJob(candidateToken, jobId);
+      const hmToken = await addStaffAndLogin(orgId, 'HIRING_MANAGER');
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .set('Authorization', `Bearer ${hmToken}`)
+        .expect(200);
+
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+    });
+
+    it("does not leak another organization's applications", async () => {
+      const orgIdA = await registerAndApproveOrg('OrgListA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgIdA);
+      const jobIdA = await createPublishedJob(recruiterTokenA);
+      const candidateTokenA = await registerCandidateAndLogin('OrgListA');
+      await uploadCv(candidateTokenA);
+      await applyToJob(candidateTokenA, jobIdA);
+
+      const orgIdB = await registerAndApproveOrg('OrgListB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgIdB);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(200);
+
+      expect(res.body.meta.total).toBe(0);
+    });
+
+    it('rejects a role without application:read (e.g. Interviewer) with 403', async () => {
+      const orgId = await registerAndApproveOrg('OrgListForbidden');
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it("rejects a candidate's own token with 403 (implicit CANDIDATE grant must not satisfy this org-scoped route)", async () => {
+      const candidateToken =
+        await registerCandidateAndLogin('OrgListCandidate');
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/applications')
+        .expect(401);
+    });
+  });
 });

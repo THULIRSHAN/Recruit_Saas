@@ -59,6 +59,17 @@ type ApplicationWithOrgRelations = Prisma.ApplicationGetPayload<{
   include: typeof orgApplicationInclude;
 }>;
 
+// The org-wide "all applications" view (dashboard/organizations/me/*) needs
+// the job title too, unlike listForJob()'s already-job-scoped shape.
+const orgWideApplicationInclude = {
+  ...orgApplicationInclude,
+  job: { select: { id: true, title: true } },
+} satisfies Prisma.ApplicationInclude;
+
+type ApplicationWithOrgWideRelations = Prisma.ApplicationGetPayload<{
+  include: typeof orgWideApplicationInclude;
+}>;
+
 @Injectable()
 export class ApplicationsService {
   constructor(
@@ -194,6 +205,38 @@ export class ApplicationsService {
 
     return {
       data: data.map((application) => this.toOrgDetail(application)),
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
+  }
+
+  // Recruiter dashboard's "Recent Applications" widget -- an org-wide,
+  // cross-job feed, unlike listForJob()'s per-job scope. No :id param, so
+  // @OrgScoped() (not @RequireTenant()) is what excludes the implicit
+  // CANDIDATE grant PermissionsGuard would otherwise apply -- application:read
+  // is shared with CANDIDATE (Q21), same class of gap as Q23/the offers list.
+  async listForOrg(orgId: string | null, query: ListJobApplicationsQueryDto) {
+    const organizationId = this.requireOrgId(orgId);
+    const where = {
+      organizationId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.application.findMany({
+        where,
+        orderBy: { appliedAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: orgWideApplicationInclude,
+      }),
+      this.prisma.application.count({ where }),
+    ]);
+
+    return {
+      data: data.map((application: ApplicationWithOrgWideRelations) => ({
+        ...this.toOrgDetail(application),
+        job: { id: application.job.id, title: application.job.title },
+      })),
       meta: { page: query.page, pageSize: query.pageSize, total },
     };
   }

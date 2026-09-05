@@ -55,6 +55,18 @@ export interface OrgOffer extends Offer {
   job: { id: string; title: string };
 }
 
+// Mirrors backend/src/applications/applications.service.ts's listForOrg()
+// -- GET /organizations/me/applications, the org-wide "recent applications"
+// feed (unlike Application above, which is the candidate's own view).
+export interface OrgApplication {
+  id: string;
+  status: ApplicationStatus;
+  appliedAt: string;
+  candidate: { id: string; fullName: string; email: string };
+  job: { id: string; title: string };
+  stage: { id: string; name: string };
+}
+
 // Mirrors backend/src/audit-log/audit-log.service.ts's list() -- GET
 // /admin/audit-log.
 export interface AuditLogEntry {

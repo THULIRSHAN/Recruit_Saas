@@ -206,6 +206,42 @@ export class InterviewsService {
     };
   }
 
+  // Recruiter dashboard's "Upcoming Interviews" widget -- org-wide, unlike
+  // listMine()'s per-interviewer scope. Reuses myInterviewInclude/
+  // toMineDetail(): same candidate+job shape either view needs. No :id
+  // param, so @OrgScoped() (not @RequireTenant()) excludes the implicit
+  // CANDIDATE grant -- though interview:read isn't actually shared with
+  // CANDIDATE today, unlike application:read/offer:read, so this is
+  // defense-in-depth/consistency with every other organizations/me/* list,
+  // not a fix for a live gap.
+  async listUpcomingForOrg(
+    orgId: string | null,
+    query: ListMyInterviewsQueryDto,
+  ) {
+    const organizationId = this.requireOrgId(orgId);
+    const where = {
+      organizationId,
+      status: 'SCHEDULED',
+      scheduledAt: { gte: new Date() },
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.interview.findMany({
+        where,
+        orderBy: { scheduledAt: 'asc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: myInterviewInclude,
+      }),
+      this.prisma.interview.count({ where }),
+    ]);
+
+    return {
+      data: data.map((interview) => this.toMineDetail(interview)),
+      meta: { page: query.page, pageSize: query.pageSize, total },
+    };
+  }
+
   // REQ-EVAL-001/Q5/Q25: exactly one evaluation per panel assignment (the
   // DB's @unique([panelMemberId]) is the authoritative enforcement, caught
   // here as P2002, same race-avoidance reasoning as M7.3's duplicate-

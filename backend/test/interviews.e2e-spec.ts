@@ -80,6 +80,10 @@ describe('Interviews (e2e)', () => {
     await grantPermission(recruiterRole.id, 'job:publish');
     await grantPermission(recruiterRole.id, 'pipeline:manage');
     await grantPermission(recruiterRole.id, 'interview:schedule');
+    // Q17-style: matches seed.ts's real RECRUITER_PERMISSIONS -- a Recruiter
+    // who schedules interviews also needs to read them (org-wide dashboard
+    // widget, not just the interviewer's own /interviews/me).
+    await grantPermission(recruiterRole.id, 'interview:read');
     // Q24: REQ-EVAL-002 names Recruiter as an actor for the aggregate view.
     await grantPermission(recruiterRole.id, 'evaluation:read');
     await grantPermission(interviewerRole.id, 'interview:read');
@@ -676,6 +680,100 @@ describe('Interviews (e2e)', () => {
 
       await request(app.getHttpServer())
         .get(`/api/v1/jobs/${jobId}/applications/${applicationId}/evaluations`)
+        .expect(401);
+    });
+  });
+
+  describe('GET /organizations/me/interviews', () => {
+    it('lists upcoming interviews across every job in the org (happy path)', async () => {
+      const { recruiterToken, jobId, applicationId, interviewerId } =
+        await setUpApplicationWithInterviewer('OrgUpcomingHappy');
+      const scheduleRes = await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/interviews`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({
+          scheduledAt: '2027-06-01T10:00:00.000Z',
+          mode: 'VIDEO',
+          interviewerIds: [interviewerId],
+        });
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/interviews')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(
+        (
+          res.body.data as Array<{ id: string; application: { id: string } }>
+        ).find((i) => i.id === scheduleRes.body.id),
+      ).toMatchObject({ application: { id: applicationId } });
+      expect(res.body.meta).toMatchObject({ page: 1, pageSize: 20 });
+    });
+
+    it('excludes interviews already in the past', async () => {
+      const { recruiterToken, jobId, applicationId, interviewerId } =
+        await setUpApplicationWithInterviewer('OrgUpcomingPast');
+      await scheduleInterview(
+        recruiterToken,
+        jobId,
+        applicationId,
+        interviewerId,
+      );
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/interviews')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body.meta.total).toBe(0);
+    });
+
+    it("does not leak another organization's interviews", async () => {
+      const {
+        recruiterToken: recruiterTokenA,
+        jobId,
+        applicationId,
+        interviewerId,
+      } = await setUpApplicationWithInterviewer('OrgUpcomingIsoA');
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${applicationId}/interviews`)
+        .set('Authorization', `Bearer ${recruiterTokenA}`)
+        .send({
+          scheduledAt: '2027-06-01T10:00:00.000Z',
+          mode: 'VIDEO',
+          interviewerIds: [interviewerId],
+        });
+
+      const orgIdB = await registerAndApproveOrg('OrgUpcomingIsoB');
+      const { token: recruiterTokenB } = await addStaffAndLogin(
+        orgIdB,
+        'RECRUITER',
+      );
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/interviews')
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(200);
+
+      expect(res.body.meta.total).toBe(0);
+    });
+
+    it('rejects a role without interview:read (e.g. Hiring Manager) with 403', async () => {
+      const orgId = await registerAndApproveOrg('OrgUpcomingForbidden');
+      const { token: hmToken } = await addStaffAndLogin(
+        orgId,
+        'HIRING_MANAGER',
+      );
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/interviews')
+        .set('Authorization', `Bearer ${hmToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/interviews')
         .expect(401);
     });
   });
