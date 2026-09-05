@@ -33,6 +33,12 @@ Phase 14 (Talent Pools) — M14 complete as of 2026-09-04: REQ-POOL-001 (also ne
 Phase 15 (University Partnerships) — M15 complete as of 2026-09-05: REQ-UNI-001 (also never specified, per Q27's pattern) got a written main flow before being built. Its actor list spans two roles on two models with no existing permission covering either — added two genuinely new keys (Q31): `university:manage` (Super Admin, the platform-wide `University` catalog, `GET /universities` public/`POST` admin-only) and `university:partner` (Company Owner, the org's own `UniversityPartnership` links, `GET`/`POST`/`DELETE /organizations/me/partnerships`). Only the Analytics dashboards (REQ-ANALYTICS-001/002) remain unbuilt in `docs/requirements.md`.
 Phase 16 (Analytics) — M16 complete as of 2026-09-05: `GET /organizations/me/analytics` (Recruiter, Hiring Manager, Company Owner) returns point-in-time funnel counts for the caller's org — `Job`/`Application`/`Interview`/`Offer` grouped by status, every status present even at zero; `GET /admin/analytics` (Super Admin) returns the same shape platform-wide plus `Organization`/`Subscription` counts, the first endpoint under the `/api/admin/*` namespace `authorization.md` §5 had documented but never used. No trend or rate/duration metrics (time-to-hire, conversion rates) — no schema field marks *when* a status transition happened, and inventing one would be guessing (Q32). Added a genuinely new `analytics:read` permission for Recruiter/Hiring Manager (Company Owner inherits it automatically). **This closes out every requirement in `docs/requirements.md`, P0 through P2.**
 
+### Frontend build (F-series)
+
+Modeled on a user-supplied Hirelane HTML/CSS/JS clickable prototype (19 screens across the public marketplace, candidate portal, org/recruiter portal, and admin portal), built against the completed backend above.
+
+F1 (Foundation), F2 (Public job marketplace), F3 (Auth: login/candidate signup/org signup) complete as of 2026-09-05: Tailwind v4 design tokens ported from the prototype, a shared UI component kit, a fetch-based API client with silent access-token refresh, `AuthProvider`/`useAuth`, backend CORS enabled (`FRONTEND_URL`), public job search/detail pages, and login/candidate-signup/org-signup pages wired to the real `/auth/*` and `/organizations` endpoints. Verified end-to-end in a browser (org registration → login → role-based dashboard redirect). Remaining: F4 (candidate portal), F5 (org/recruiter portal), F6 (admin portal).
+
 ## Running Locally
 
 Requires Node.js 24 (see `.nvmrc`) and Docker Desktop.
