@@ -37,7 +37,16 @@ Phase 16 (Analytics) — M16 complete as of 2026-09-05: `GET /organizations/me/a
 
 Modeled on a user-supplied Hirelane HTML/CSS/JS clickable prototype (19 screens across the public marketplace, candidate portal, org/recruiter portal, and admin portal), built against the completed backend above.
 
-F1 (Foundation), F2 (Public job marketplace), F3 (Auth: login/candidate signup/org signup) complete as of 2026-09-05: Tailwind v4 design tokens ported from the prototype, a shared UI component kit, a fetch-based API client with silent access-token refresh, `AuthProvider`/`useAuth`, backend CORS enabled (`FRONTEND_URL`), public job search/detail pages, and login/candidate-signup/org-signup pages wired to the real `/auth/*` and `/organizations` endpoints. Verified end-to-end in a browser (org registration → login → role-based dashboard redirect). Remaining: F4 (candidate portal), F5 (org/recruiter portal), F6 (admin portal).
+F1-F6 complete as of 2026-09-05 -- every one of the prototype's 19 screens is built and wired to the real backend, closing out the frontend build alongside the P0-P2 backend above:
+
+- **F1 (Foundation)**: Tailwind v4 design tokens ported from the prototype, a shared UI component kit, a fetch-based API client with silent access-token refresh (deduplicated against React Strict Mode's double-effect-invoke), `AuthProvider`/`useAuth`, backend CORS enabled (`FRONTEND_URL`).
+- **F2 (Public marketplace)**: job search + job detail, server-rendered against `GET /jobs/search` / `GET /jobs/public/:id`.
+- **F3 (Auth)**: login, candidate signup, org signup, wired to `/auth/*` and `POST /organizations`.
+- **F4 (Candidate portal)**: dashboard, application list/detail/withdraw, offer review, job application form, full profile management (about/CVs/experience/education/skills).
+- **F5 (Org/recruiter portal)**: dashboard, job create/edit + pipeline-stage management, a per-job kanban board, application detail (stepper, evaluations, screen/decide actions), interview scheduling, offer creation, and the interviewer's own evaluation-submission screen. Added `GET /organizations/me/members` (no endpoint previously existed to pick an interview panel).
+- **F6 (Admin portal)**: platform overview (`GET /admin/analytics`) and the organization approval queue (Pending/Active/Rejected, approve/reject with reason).
+
+Two real bugs found via manual testing and fixed: a token-refresh race condition (Strict Mode double-invoke racing a single-use refresh token) that could wrongly log out a valid session, and a candidate-profile crash from assuming `PATCH /candidates/me/education|experience|skills` return the full profile when they return just the replaced list. The entire org+candidate hiring flow (post job → publish → apply → screen → schedule interview → evaluate → hire → offer → accept) was verified end-to-end against the live backend. Deliberately not built: an audit-log table (no read endpoint exists yet, write-only) and a platform-growth chart (no schema field marks status-transition timestamps, Q32) -- both would have required fabricating data.
 
 ## Running Locally
 
