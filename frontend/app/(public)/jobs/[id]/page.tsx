@@ -55,6 +55,12 @@ export default async function JobPage({ params }: JobPageProps) {
               Apply now
             </Button>
           </Link>
+          <Button variant="secondary" block>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3.5l2.5 5.6 6 .6-4.5 4.1 1.3 6-5.3-3.1-5.3 3.1 1.3-6-4.5-4.1 6-.6Z" />
+            </svg>
+            Save job
+          </Button>
           <Divider />
           <div className="text-[13px] text-ink-soft">Posted at {job.organization.name}</div>
         </Card>

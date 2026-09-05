@@ -39,23 +39,39 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </div>
 
       <form method="get" className="mb-6 flex gap-2.5 rounded-lg border border-border bg-surface p-4 shadow-card-sm">
-        <input
-          name="keyword"
-          defaultValue={keyword}
-          placeholder="Job title, skill or company"
-          className="h-11 flex-1 rounded-[9px] border border-border px-3.5 text-[13.5px] text-ink outline-none focus:border-accent"
-        />
-        <input
-          name="location"
-          defaultValue={location}
-          placeholder="Location"
-          className="h-11 w-64 rounded-[9px] border border-border px-3.5 text-[13.5px] text-ink outline-none focus:border-accent"
-        />
+        <div className="flex h-11 flex-1 items-center gap-2 rounded-[9px] border border-border px-3.5 focus-within:border-accent">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-faint)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <circle cx="10" cy="10" r="6.5" />
+            <line x1="15" y1="15" x2="20" y2="20" />
+          </svg>
+          <input
+            name="keyword"
+            defaultValue={keyword}
+            placeholder="Job title, skill or company"
+            className="h-full w-full text-[13.5px] text-ink outline-none"
+          />
+        </div>
+        <div className="flex h-11 w-64 items-center gap-2 rounded-[9px] border border-border px-3.5 focus-within:border-accent">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-faint)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <path d="M12 21s-6.5-6-6.5-11.2A6.5 6.5 0 0 1 18.5 9.8C18.5 15 12 21 12 21Z" />
+            <circle cx="12" cy="9.8" r="2.3" />
+          </svg>
+          <input
+            name="location"
+            defaultValue={location}
+            placeholder="Location"
+            className="h-full w-full text-[13.5px] text-ink outline-none"
+          />
+        </div>
         {employmentType && <input type="hidden" name="employmentType" value={employmentType} />}
         <button
           type="submit"
-          className="h-11 rounded-[9px] bg-accent px-5 text-[13.5px] font-bold text-white hover:bg-accent-hover"
+          className="flex h-11 items-center gap-1.5 rounded-[9px] bg-accent px-5 text-[13.5px] font-bold text-white hover:bg-accent-hover"
         >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="10" cy="10" r="6.5" />
+            <line x1="15" y1="15" x2="20" y2="20" />
+          </svg>
           Search
         </button>
       </form>
@@ -95,8 +111,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         {jobs.map((job) => {
           const salary = formatSalaryRange(job.salaryMin, job.salaryMax);
           return (
-            <Link key={job.id} href={`/jobs/${job.id}`}>
-              <Card className="flex items-start gap-4 transition-shadow hover:shadow-card-md">
+            <Card key={job.id} className="flex items-start gap-4 transition-shadow hover:shadow-card-md">
+              <Link href={`/jobs/${job.id}`} className="flex flex-1 items-start gap-4 min-w-0">
                 <Avatar name={job.organization.name} size={44} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-3">
@@ -112,8 +128,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                     {formatRelativeDate(job.publishedAt)}
                   </div>
                 </div>
-              </Card>
-            </Link>
+              </Link>
+              <button type="button" aria-label="Save job" className="shrink-0 text-ink-faint hover:text-warning">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3.5l2.5 5.6 6 .6-4.5 4.1 1.3 6-5.3-3.1-5.3 3.1 1.3-6-4.5-4.1 6-.6Z" />
+                </svg>
+              </button>
+            </Card>
           );
         })}
       </div>
