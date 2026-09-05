@@ -58,13 +58,38 @@ export interface OrgOffer extends Offer {
 // Mirrors backend/src/applications/applications.service.ts's listForOrg()
 // -- GET /organizations/me/applications, the org-wide "recent applications"
 // feed (unlike Application above, which is the candidate's own view).
+// Org-staff view of an application -- mirrors backend/src/applications/
+// applications.service.ts's toOrgDetail(). `job` is only present on the
+// org-wide list (GET /organizations/me/applications, listForOrg()); the
+// per-job routes already know the job from the URL and omit it.
 export interface OrgApplication {
   id: string;
   status: ApplicationStatus;
+  coverNote: string | null;
+  rejectedReason: string | null;
   appliedAt: string;
-  candidate: { id: string; fullName: string; email: string };
-  job: { id: string; title: string };
+  updatedAt: string;
+  candidate: { id: string; fullName: string; email: string; phone: string | null };
+  cv: { id: string; fileName: string };
   stage: { id: string; name: string };
+  job?: { id: string; title: string };
+}
+
+// The org-wide list (GET /organizations/me/applications) always includes
+// `job` -- narrowed here so consumers of that endpoint specifically don't
+// need an undefined check for a field that's always present on this shape.
+export interface OrgApplicationWithJob extends OrgApplication {
+  job: { id: string; title: string };
+}
+
+// Mirrors backend/src/applications/applications.service.ts's
+// getStageHistoryForJob() -- GET /jobs/:jobId/applications/:id/history.
+export interface ApplicationStageHistoryEntry {
+  id: string;
+  movedAt: string;
+  fromStage: { id: string; name: string } | null;
+  toStage: { id: string; name: string } | null;
+  movedBy: { id: string; fullName: string } | null;
 }
 
 // Mirrors backend/src/audit-log/audit-log.service.ts's list() -- GET
@@ -183,19 +208,6 @@ export interface MyInterview {
     job: { id: string; title: string };
     candidate: { id: string; fullName: string };
   };
-}
-
-// Org-staff view of an application (backend/src/applications/applications.service.ts's toOrgDetail()).
-export interface OrgApplication {
-  id: string;
-  status: ApplicationStatus;
-  coverNote: string | null;
-  rejectedReason: string | null;
-  appliedAt: string;
-  updatedAt: string;
-  candidate: { id: string; fullName: string; email: string };
-  cv: { id: string; fileName: string };
-  stage: { id: string; name: string };
 }
 
 // SUSPENDED exists in the schema but nothing transitions an org to it yet

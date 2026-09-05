@@ -3,10 +3,16 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, CheckIcon, ConfirmDialog, Select, Stars } from '@/components/ui';
+import { Badge, Button, Card, CheckIcon, ConfirmDialog, DownloadIcon, Select, Stars } from '@/components/ui';
 import { api, ApiError } from '@/lib/api';
-import { formatDate } from '@/lib/format';
-import type { Evaluation, OrgApplication, RecruitmentStage, TalentPool } from '@/lib/types';
+import { formatDate, formatDateTime } from '@/lib/format';
+import type {
+  ApplicationStageHistoryEntry,
+  Evaluation,
+  OrgApplication,
+  RecruitmentStage,
+  TalentPool,
+} from '@/lib/types';
 
 const RECOMMENDATION_LABEL: Record<string, string> = {
   STRONG_YES: 'Strong Yes',
@@ -21,6 +27,7 @@ export default function ApplicationDetailPage() {
   const [application, setApplication] = useState<OrgApplication | null>(null);
   const [stages, setStages] = useState<RecruitmentStage[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [history, setHistory] = useState<ApplicationStageHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [confirmingReject, setConfirmingReject] = useState<'screen' | 'decide' | null>(null);
@@ -29,9 +36,19 @@ export default function ApplicationDetailPage() {
     api.get<OrgApplication>(`/jobs/${id}/applications/${appId}`).then(setApplication);
     api.get<RecruitmentStage[]>(`/jobs/${id}/stages`).then((s) => setStages(s.sort((a, b) => a.order - b.order)));
     api.get<Evaluation[]>(`/jobs/${id}/applications/${appId}/evaluations`).then(setEvaluations);
+    api.get<ApplicationStageHistoryEntry[]>(`/jobs/${id}/applications/${appId}/history`).then(setHistory);
   }
 
   useEffect(load, [id, appId]);
+
+  async function downloadCv() {
+    const { url } = await api.get<{ url: string; expiresAt: string }>(
+      `/jobs/${id}/applications/${appId}/cv/signed-url`,
+    );
+    // Relative path from the backend (see LocalStorageService.getSignedUrl) --
+    // the browser needs the backend's own origin, not the frontend's.
+    window.open(`${process.env.NEXT_PUBLIC_API_URL}${url}`, '_blank');
+  }
 
   const currentStageIndex = stages.findIndex((s) => s.id === application?.stage.id);
   const isFinalStage = currentStageIndex >= 0 && currentStageIndex === stages.length - 1;
@@ -92,7 +109,10 @@ export default function ApplicationDetailPage() {
             {application.status === 'ACTIVE' ? application.stage.name : application.status}
           </Badge>
         </div>
-        <p className="mb-6 text-[13px] text-ink-soft">{application.candidate.email}</p>
+        <p className="mb-6 text-[13px] text-ink-soft">
+          {application.candidate.email}
+          {application.candidate.phone && <> · {application.candidate.phone}</>}
+        </p>
 
         {stages.length > 0 && (
           <Card className="mb-4">
@@ -194,7 +214,10 @@ export default function ApplicationDetailPage() {
       <div className="w-[260px] shrink-0">
         <Card className="mb-4">
           <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Submitted CV</div>
-          <p className="text-[13px] text-ink">{application.cv.fileName}</p>
+          <button onClick={downloadCv} className="flex items-center gap-1.5 text-[13px] font-bold text-accent">
+            <DownloadIcon size={13} />
+            {application.cv.fileName}
+          </button>
         </Card>
         <Card className="mb-4">
           <div className="mb-2 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Application details</div>
@@ -203,6 +226,24 @@ export default function ApplicationDetailPage() {
             View job posting →
           </Link>
         </Card>
+
+        {history.length > 0 && (
+          <Card className="mb-4">
+            <div className="mb-3 text-[11px] font-bold tracking-wide text-ink-soft uppercase">Activity</div>
+            <div className="flex flex-col gap-3">
+              {history.map((entry) => (
+                <div key={entry.id} className="text-[12.5px]">
+                  <p className="text-ink">
+                    <span className="font-bold">{entry.movedBy?.fullName ?? 'Someone'}</span> moved this candidate
+                    {entry.fromStage ? ` from ${entry.fromStage.name}` : ''} to{' '}
+                    <span className="font-bold">{entry.toStage?.name}</span>
+                  </p>
+                  <p className="text-ink-faint">{formatDateTime(entry.movedAt)}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         <AddToTalentPool candidateId={application.candidate.id} />
       </div>

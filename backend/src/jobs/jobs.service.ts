@@ -182,8 +182,11 @@ export class JobsService {
     return stages.map((stage) => this.toStageDetail(stage));
   }
 
-  // Replaces the job's stage list wholesale (delete + recreate) -- same
-  // pattern as PipelineTemplatesService.update's stage replacement.
+  // Replaces the job's stage list wholesale -- see setStages() for how
+  // (diffed against the existing rows, not a blind delete + recreate;
+  // PipelineTemplatesService.update()'s own stage replacement can still get
+  // away with delete + recreate since nothing references a template stage
+  // by id the way Application.stageId references a RecruitmentStage).
   async replaceStages(
     orgId: string | null,
     jobId: string,
@@ -310,12 +313,56 @@ export class JobsService {
     });
   }
 
+  // Bug found via manual testing (2026-09-05): the previous delete-all-then-
+  // recreate approach 500'd (unhandled P2003) the moment a job had even one
+  // Application, since Application.stageId has no onDelete action and
+  // Postgres rejects deleting a still-referenced RecruitmentStage row. Fixed
+  // by diffing against the existing stages instead: match by name to reuse
+  // (and just reorder) a stage a candidate may already be sitting in --
+  // preserving Application.stageId/ApplicationStageHistory references
+  // untouched -- create genuinely new names, and only delete names being
+  // dropped, which is now validated as safe first. No spec doc covers
+  // "can stages be edited after candidates have applied" at all -- see
+  // docs/open-questions.md Q35 for why blocking the delete rather than
+  // guessing a remap for the *removed* name is the right call.
   private async setStages(jobId: string, stageNames: string[]) {
     const stages = await this.prisma.$transaction(async (tx) => {
-      await tx.recruitmentStage.deleteMany({ where: { jobId } });
-      await tx.recruitmentStage.createMany({
-        data: stageNames.map((name, index) => ({ jobId, name, order: index })),
+      const existing = await tx.recruitmentStage.findMany({
+        where: { jobId },
       });
+      const existingByName = new Map(existing.map((s) => [s.name, s]));
+      const keepNames = new Set(stageNames);
+      const toRemove = existing.filter((s) => !keepNames.has(s.name));
+
+      if (toRemove.length > 0) {
+        const stillInUse = await tx.application.findFirst({
+          where: { jobId, stageId: { in: toRemove.map((s) => s.id) } },
+          select: { stage: { select: { name: true } } },
+        });
+        if (stillInUse) {
+          throw new ConflictException(
+            `Cannot remove stage "${stillInUse.stage.name}" -- a candidate is currently in it. Move them to another stage first.`,
+          );
+        }
+        await tx.recruitmentStage.deleteMany({
+          where: { id: { in: toRemove.map((s) => s.id) } },
+        });
+      }
+
+      await Promise.all(
+        stageNames.map((name, index) => {
+          const match = existingByName.get(name);
+          return match
+            ? tx.recruitmentStage.update({
+                where: { id: match.id },
+                data: { order: index },
+              })
+            : tx.recruitmentStage.create({
+                data: { jobId, name, order: index },
+              });
+        }),
+      );
+
       return tx.recruitmentStage.findMany({
         where: { jobId },
         orderBy: { order: 'asc' },

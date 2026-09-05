@@ -591,6 +591,132 @@ describe('ApplicationsController (e2e)', () => {
     });
   });
 
+  // REQ-APP-002/003: "reviews incoming applications... (list + CV preview)".
+  describe('GET /jobs/:jobId/applications/:id/cv/signed-url', () => {
+    it('returns a signed URL for the CV the candidate submitted (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('CvUrlHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CvUrlHappy');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/cv/signed-url`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body).toHaveProperty('url');
+      expect(res.body).toHaveProperty('expiresAt');
+    });
+
+    it('returns 404 for a job belonging to another organization', async () => {
+      const orgAId = await registerAndApproveOrg('CvUrlCrossA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgAId);
+      const jobId = await createPublishedJob(recruiterTokenA);
+      const candidateToken = await registerCandidateAndLogin('CvUrlCrossA');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const orgBId = await registerAndApproveOrg('CvUrlCrossB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgBId);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/cv/signed-url`)
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(404);
+    });
+
+    it('rejects a role without application:read (e.g. Interviewer) with 403', async () => {
+      const orgId = await registerAndApproveOrg('CvUrlForbidden');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('CvUrlForbidden');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const interviewerToken = await addStaffAndLogin(orgId, 'INTERVIEWER');
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/cv/signed-url`)
+        .set('Authorization', `Bearer ${interviewerToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/jobs/job-1/applications/app-1/cv/signed-url')
+        .expect(401);
+    });
+  });
+
+  describe('GET /jobs/:jobId/applications/:id/history', () => {
+    it('lists stage transitions with the mover and stages resolved (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('HistoryHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('HistoryHappy');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/jobs/${jobId}/applications/${appId}/screen`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ decision: 'PASS' })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/history`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        fromStage: { name: 'Applied' },
+        toStage: { name: 'Interview' },
+      });
+      expect(res.body[0].movedBy).not.toBeNull();
+    });
+
+    it('returns an empty list for a freshly-applied application', async () => {
+      const orgId = await registerAndApproveOrg('HistoryEmpty');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('HistoryEmpty');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/history`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+
+      expect(res.body).toEqual([]);
+    });
+
+    it('returns 404 for a job belonging to another organization', async () => {
+      const orgAId = await registerAndApproveOrg('HistoryCrossA');
+      const recruiterTokenA = await addRecruiterAndLogin(orgAId);
+      const jobId = await createPublishedJob(recruiterTokenA);
+      const candidateToken = await registerCandidateAndLogin('HistoryCrossA');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      const orgBId = await registerAndApproveOrg('HistoryCrossB');
+      const recruiterTokenB = await addRecruiterAndLogin(orgBId);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}/history`)
+        .set('Authorization', `Bearer ${recruiterTokenB}`)
+        .expect(404);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/jobs/job-1/applications/app-1/history')
+        .expect(401);
+    });
+  });
+
   describe('POST /jobs/:jobId/applications/:id/screen', () => {
     it("PASS advances the application to the job's next pipeline stage", async () => {
       const orgId = await registerAndApproveOrg('ScreenPass');
@@ -826,6 +952,62 @@ describe('ApplicationsController (e2e)', () => {
         .post(`/api/v1/jobs/${jobId}/applications/${appId}/decide`)
         .send({ decision: 'HIRE' })
         .expect(401);
+    });
+  });
+
+  // Q35: PATCH /jobs/:id/stages 500'd (unhandled P2003) the moment a job's
+  // stages were replaced while a candidate had already applied -- covered
+  // here (not jobs.e2e-spec.ts) since it needs a real Application, and this
+  // file already has every fixture helper for creating one.
+  describe('PATCH /jobs/:id/stages (once an application already exists)', () => {
+    it('adding a new stage keeps the existing application in its current stage (happy path)', async () => {
+      const orgId = await registerAndApproveOrg('StagesEditHappy');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken = await registerCandidateAndLogin('StagesEditHappy');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+      const before = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}`)
+        .set('Authorization', `Bearer ${recruiterToken}`);
+      const originalStageId = before.body.stage.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ stages: ['Applied', 'Screening', 'Interview'] })
+        .expect(200);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+      expect(after.body.stage).toMatchObject({
+        id: originalStageId,
+        name: 'Applied',
+      });
+    });
+
+    it('returns 409 (not 500) when removing a stage the application is still in', async () => {
+      const orgId = await registerAndApproveOrg('StagesEditConflict');
+      const recruiterToken = await addRecruiterAndLogin(orgId);
+      const jobId = await createPublishedJob(recruiterToken);
+      const candidateToken =
+        await registerCandidateAndLogin('StagesEditConflict');
+      await uploadCv(candidateToken);
+      const appId = await applyToJob(candidateToken, jobId);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/jobs/${jobId}/stages`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({ stages: ['Screening', 'Interview'] })
+        .expect(409);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/v1/jobs/${jobId}/applications/${appId}`)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+      expect(after.body.stage.name).toBe('Applied');
     });
   });
 

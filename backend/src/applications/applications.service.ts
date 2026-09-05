@@ -10,6 +10,7 @@ import {
   OrganizationStatus,
   Prisma,
 } from '../generated/prisma/client';
+import { CandidatesService } from '../candidates/candidates.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateApplicationDto } from './dto/create-application.dto';
@@ -49,8 +50,19 @@ type ApplicationWithRelations = Prisma.ApplicationGetPayload<{
 
 // Org-staff view (M7.4): candidate identity instead of job/org identity,
 // since the caller already knows the job from the URL. See requireJobApplication.
+// candidateProfile.phone included per REQ-APP-002/003's "reviews incoming
+// applications" flow -- a recruiter reviewing a candidate reasonably needs
+// their contact info; CandidateProfile is nullable (created lazily, Q11) so
+// this can genuinely be absent.
 const orgApplicationInclude = {
-  candidate: { select: { id: true, fullName: true, email: true } },
+  candidate: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      candidateProfile: { select: { phone: true } },
+    },
+  },
   cv: { select: { id: true, fileName: true } },
   stage: { select: { id: true, name: true, order: true } },
 } satisfies Prisma.ApplicationInclude;
@@ -75,6 +87,7 @@ export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly candidatesService: CandidatesService,
   ) {}
 
   // REQ-APP-001. "At most one ACTIVE application per job+candidate" is
@@ -249,6 +262,64 @@ export class ApplicationsService {
       id,
     );
     return this.toOrgDetail(application);
+  }
+
+  // REQ-APP-002/003's own main flow: "Recruiter reviews incoming
+  // applications... (list + CV preview)" -- a P0 requirement with no
+  // endpoint behind it until now. Delegates the actual signed-URL
+  // generation to CandidatesService (CLAUDE.md rule 4 -- CV is that
+  // module's model), but does the tenant/ownership check here first via
+  // getForJob(), same delegation shape as InterviewsService calling
+  // ApplicationsService.getForJob() for its own tenant scoping.
+  async getCvSignedUrlForJob(orgId: string | null, jobId: string, id: string) {
+    const application = await this.getForJob(orgId, jobId, id);
+    return this.candidatesService.getCvSignedUrlById(application.cv.id);
+  }
+
+  // ApplicationStageHistory has been write-only since M7.3/M7.4 (screen()'s
+  // PASS branch below is the only writer) -- same "modeled for audit but
+  // never read back" gap as AuditLog was before Q33, just never flagged in
+  // open-questions.md. fromStageId/toStageId/movedById are scalar FKs with
+  // no declared Prisma relation (same shape as Invitation.roleId/AuditLog),
+  // resolved via batch lookups rather than an `include`.
+  async getStageHistoryForJob(orgId: string | null, jobId: string, id: string) {
+    const organizationId = this.requireOrgId(orgId);
+    await this.requireJobApplication(organizationId, jobId, id);
+
+    const history = await this.prisma.applicationStageHistory.findMany({
+      where: { applicationId: id },
+      orderBy: { movedAt: 'asc' },
+    });
+    const stageIds = [
+      ...new Set(
+        history
+          .flatMap((h) => [h.fromStageId, h.toStageId])
+          .filter((sid): sid is string => sid !== null),
+      ),
+    ];
+    const actorIds = [...new Set(history.map((h) => h.movedById))];
+    const [stages, actors] = await Promise.all([
+      this.prisma.recruitmentStage.findMany({
+        where: { id: { in: stageIds } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.user.findMany({
+        where: { id: { in: actorIds } },
+        select: { id: true, fullName: true },
+      }),
+    ]);
+    const stageById = new Map(stages.map((s) => [s.id, s]));
+    const actorById = new Map(actors.map((a) => [a.id, a]));
+
+    return history.map((entry) => ({
+      id: entry.id,
+      movedAt: entry.movedAt,
+      fromStage: entry.fromStageId
+        ? (stageById.get(entry.fromStageId) ?? null)
+        : null,
+      toStage: stageById.get(entry.toStageId) ?? null,
+      movedBy: actorById.get(entry.movedById) ?? null,
+    }));
   }
 
   // REQ-APP-002: PASS advances to the job's next stage by order (Q22 --
@@ -506,6 +577,7 @@ export class ApplicationsService {
         id: application.candidate.id,
         fullName: application.candidate.fullName,
         email: application.candidate.email,
+        phone: application.candidate.candidateProfile?.phone ?? null,
       },
       cv: { id: application.cv.id, fileName: application.cv.fileName },
       stage: { id: application.stage.id, name: application.stage.name },

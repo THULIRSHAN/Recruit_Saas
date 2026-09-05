@@ -4,6 +4,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ApplicationsService } from './applications.service';
+import { CandidatesService } from '../candidates/candidates.service';
 import { Prisma } from '../generated/prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,6 +13,12 @@ function createNotificationsServiceMock() {
   return {
     notify: jest.fn(),
   } as unknown as jest.Mocked<NotificationsService>;
+}
+
+function createCandidatesServiceMock() {
+  return {
+    getCvSignedUrlById: jest.fn(),
+  } as unknown as jest.Mocked<CandidatesService>;
 }
 
 function createPrismaMock() {
@@ -102,6 +109,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.create('user-1', {
@@ -133,6 +141,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await service.create('user-1', { jobId: 'job-1' });
@@ -154,6 +163,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -169,6 +179,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -182,6 +193,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -200,6 +212,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -218,6 +231,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -240,6 +254,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -256,6 +271,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.listMine('user-1', {
@@ -276,6 +292,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await service.listMine('user-1', {
@@ -299,6 +316,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.getMine('user-1', 'app-1');
@@ -317,6 +335,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(service.getMine('user-1', 'app-1')).rejects.toBeInstanceOf(
@@ -336,6 +355,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.withdraw('user-1', 'app-1');
@@ -358,6 +378,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(service.withdraw('user-1', 'app-1')).rejects.toBeInstanceOf(
@@ -372,6 +393,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(service.withdraw('user-1', 'app-1')).rejects.toBeInstanceOf(
@@ -389,6 +411,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.listForJob('org-1', 'job-1', {
@@ -415,6 +438,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await service.listForJob('org-1', 'job-1', {
@@ -439,6 +463,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -454,6 +479,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.getForJob('org-1', 'job-1', 'app-1');
@@ -472,6 +498,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -490,7 +517,11 @@ describe('ApplicationsService', () => {
         rejectedReason: 'Not enough experience.',
       });
       const notificationsService = createNotificationsServiceMock();
-      const service = new ApplicationsService(prisma, notificationsService);
+      const service = new ApplicationsService(
+        prisma,
+        notificationsService,
+        createCandidatesServiceMock(),
+      );
 
       const result = await service.screen(
         'org-1',
@@ -548,6 +579,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       const result = await service.screen(
@@ -589,6 +621,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -607,6 +640,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -622,6 +656,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -641,7 +676,11 @@ describe('ApplicationsService', () => {
         status: 'HIRED',
       });
       const notificationsService = createNotificationsServiceMock();
-      const service = new ApplicationsService(prisma, notificationsService);
+      const service = new ApplicationsService(
+        prisma,
+        notificationsService,
+        createCandidatesServiceMock(),
+      );
 
       const result = await service.decide(
         'org-1',
@@ -680,7 +719,11 @@ describe('ApplicationsService', () => {
         rejectedReason: 'Panel unanimous no.',
       });
       const notificationsService = createNotificationsServiceMock();
-      const service = new ApplicationsService(prisma, notificationsService);
+      const service = new ApplicationsService(
+        prisma,
+        notificationsService,
+        createCandidatesServiceMock(),
+      );
 
       const result = await service.decide(
         'org-1',
@@ -728,6 +771,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(
@@ -743,6 +787,7 @@ describe('ApplicationsService', () => {
       const service = new ApplicationsService(
         prisma,
         createNotificationsServiceMock(),
+        createCandidatesServiceMock(),
       );
 
       await expect(

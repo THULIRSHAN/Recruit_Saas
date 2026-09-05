@@ -20,17 +20,28 @@ function createPrismaMock() {
     findMany: jest.fn(),
     deleteMany: jest.fn(),
     createMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
     count: jest.fn(),
   };
-  const txMock = { recruitmentStage };
+  const application = {
+    findFirst: jest.fn(),
+  };
+  const txMock = { recruitmentStage, application };
   const prisma = {
     job,
     recruitmentStage,
+    application,
     $transaction: jest.fn((callback: (tx: typeof txMock) => unknown) =>
       callback(txMock),
     ),
   };
-  return { prisma: prisma as unknown as PrismaService, job, recruitmentStage };
+  return {
+    prisma: prisma as unknown as PrismaService,
+    job,
+    recruitmentStage,
+    application,
+  };
 }
 
 function createPipelineTemplatesServiceMock() {
@@ -288,13 +299,16 @@ describe('JobsService', () => {
   });
 
   describe('replaceStages', () => {
-    it('replaces the stage list wholesale for a job scoped to the caller org', async () => {
-      const { prisma, job, recruitmentStage } = createPrismaMock();
+    it('creates every stage fresh when the job has none yet', async () => {
+      const { prisma, job, recruitmentStage, application } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
-      recruitmentStage.findMany.mockResolvedValue([
-        { id: 'stage-1', name: 'Applied', order: 0 },
-        { id: 'stage-2', name: 'Interview', order: 1 },
-      ]);
+      recruitmentStage.findMany
+        .mockResolvedValueOnce([]) // existing, before
+        .mockResolvedValueOnce([
+          { id: 'stage-1', name: 'Applied', order: 0 },
+          { id: 'stage-2', name: 'Interview', order: 1 },
+        ]); // final read
+      application.findFirst.mockResolvedValue(null);
       const service = new JobsService(
         prisma,
         createPipelineTemplatesServiceMock(),
@@ -304,19 +318,73 @@ describe('JobsService', () => {
         stages: ['Applied', 'Interview'],
       });
 
-      expect(recruitmentStage.deleteMany).toHaveBeenCalledWith({
-        where: { jobId: 'job-1' },
+      expect(recruitmentStage.create).toHaveBeenNthCalledWith(1, {
+        data: { jobId: 'job-1', name: 'Applied', order: 0 },
       });
-      expect(recruitmentStage.createMany).toHaveBeenCalledWith({
-        data: [
-          { jobId: 'job-1', name: 'Applied', order: 0 },
-          { jobId: 'job-1', name: 'Interview', order: 1 },
-        ],
+      expect(recruitmentStage.create).toHaveBeenNthCalledWith(2, {
+        data: { jobId: 'job-1', name: 'Interview', order: 1 },
       });
+      expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
       expect(result).toEqual([
         { id: 'stage-1', name: 'Applied', order: 0 },
         { id: 'stage-2', name: 'Interview', order: 1 },
       ]);
+    });
+
+    // Bug fix (2026-09-05/Q35): reorders/renames-in-place by reusing the
+    // existing row's id for a name that survives, instead of deleting and
+    // recreating every stage -- the crash this fixes only reproduces with a
+    // real FK (covered by jobs.e2e-spec.ts), but this proves the diffing
+    // logic itself doesn't touch a stage that isn't being removed.
+    it('reuses (reorders) an existing stage whose name is kept, rather than deleting and recreating it', async () => {
+      const { prisma, job, recruitmentStage, application } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.findMany
+        .mockResolvedValueOnce([{ id: 'stage-1', name: 'Applied', order: 0 }])
+        .mockResolvedValueOnce([
+          { id: 'stage-1', name: 'Applied', order: 1 },
+          { id: 'stage-2', name: 'Interview', order: 0 },
+        ]);
+      application.findFirst.mockResolvedValue(null);
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await service.replaceStages('org-1', 'job-1', {
+        stages: ['Interview', 'Applied'],
+      });
+
+      expect(recruitmentStage.update).toHaveBeenCalledWith({
+        where: { id: 'stage-1' },
+        data: { order: 1 },
+      });
+      expect(recruitmentStage.create).toHaveBeenCalledWith({
+        data: { jobId: 'job-1', name: 'Interview', order: 0 },
+      });
+      expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 and touches nothing when a candidate is still in the stage being removed', async () => {
+      const { prisma, job, recruitmentStage, application } = createPrismaMock();
+      job.findFirst.mockResolvedValue(baseJob);
+      recruitmentStage.findMany.mockResolvedValueOnce([
+        { id: 'stage-1', name: 'Applied', order: 0 },
+      ]);
+      application.findFirst.mockResolvedValue({
+        stage: { name: 'Applied' },
+      });
+      const service = new JobsService(
+        prisma,
+        createPipelineTemplatesServiceMock(),
+      );
+
+      await expect(
+        service.replaceStages('org-1', 'job-1', { stages: ['Screening'] }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
+      expect(recruitmentStage.create).not.toHaveBeenCalled();
+      expect(recruitmentStage.update).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException for a cross-tenant or nonexistent job, without touching stages', async () => {
@@ -336,12 +404,15 @@ describe('JobsService', () => {
 
   describe('applyTemplate', () => {
     it("copies the template's stages, ordered, into the job's own RecruitmentStage rows", async () => {
-      const { prisma, job, recruitmentStage } = createPrismaMock();
+      const { prisma, job, recruitmentStage, application } = createPrismaMock();
       job.findFirst.mockResolvedValue(baseJob);
-      recruitmentStage.findMany.mockResolvedValue([
-        { id: 'stage-1', name: 'Applied', order: 0 },
-        { id: 'stage-2', name: 'Interview', order: 1 },
-      ]);
+      recruitmentStage.findMany
+        .mockResolvedValueOnce([]) // job has no stages yet
+        .mockResolvedValueOnce([
+          { id: 'stage-1', name: 'Applied', order: 0 },
+          { id: 'stage-2', name: 'Interview', order: 1 },
+        ]);
+      application.findFirst.mockResolvedValue(null);
       const pipelineTemplatesService = createPipelineTemplatesServiceMock();
       (pipelineTemplatesService.getOne as jest.Mock).mockResolvedValue({
         id: 'template-1',
@@ -362,11 +433,11 @@ describe('JobsService', () => {
         'org-1',
         'template-1',
       );
-      expect(recruitmentStage.createMany).toHaveBeenCalledWith({
-        data: [
-          { jobId: 'job-1', name: 'Applied', order: 0 },
-          { jobId: 'job-1', name: 'Interview', order: 1 },
-        ],
+      expect(recruitmentStage.create).toHaveBeenNthCalledWith(1, {
+        data: { jobId: 'job-1', name: 'Applied', order: 0 },
+      });
+      expect(recruitmentStage.create).toHaveBeenNthCalledWith(2, {
+        data: { jobId: 'job-1', name: 'Interview', order: 1 },
       });
     });
 
@@ -385,6 +456,7 @@ describe('JobsService', () => {
         }),
       ).rejects.toBeInstanceOf(UnprocessableEntityException);
       expect(recruitmentStage.deleteMany).not.toHaveBeenCalled();
+      expect(recruitmentStage.create).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException for a cross-tenant or nonexistent job', async () => {

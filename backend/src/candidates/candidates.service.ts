@@ -177,6 +177,22 @@ export class CandidatesService {
     return { url: signed.url, expiresAt: signed.expiresAt };
   }
 
+  // REQ-APP-002/003's own main flow: "Recruiter reviews incoming
+  // applications... (list + CV preview)" -- a documented P0 requirement
+  // with no endpoint behind it until now. Called by ApplicationsService,
+  // which has already verified (via its own tenant-scoped getForJob()) that
+  // this cvId belongs to an application at the caller's org -- no
+  // candidateId ownership check here, unlike requireOwnCv()/getCvSignedUrl()
+  // above, which are for the candidate's own self-service view.
+  async getCvSignedUrlById(cvId: string) {
+    const cv = await this.prisma.cV.findUnique({ where: { id: cvId } });
+    if (!cv) {
+      throw new NotFoundException(CV_NOT_FOUND_MESSAGE);
+    }
+    const signed = await this.storageService.getSignedUrl(cv.fileKey);
+    return { url: signed.url, expiresAt: signed.expiresAt };
+  }
+
   private async requireOwnCv(userId: string, cvId: string) {
     const cv = await this.prisma.cV.findFirst({
       where: { id: cvId, candidateId: userId },

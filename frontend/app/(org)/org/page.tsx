@@ -17,7 +17,7 @@ import {
 } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
-import type { MyInterview, OrgApplication, PaginatedResponse } from '@/lib/types';
+import type { MyInterview, OrgApplicationWithJob, PaginatedResponse } from '@/lib/types';
 
 interface OrgAnalytics {
   jobs: { total: number; byStatus: Record<string, number> };
@@ -28,13 +28,13 @@ interface OrgAnalytics {
 
 export default function OrgDashboardPage() {
   const [analytics, setAnalytics] = useState<OrgAnalytics | null>(null);
-  const [applications, setApplications] = useState<OrgApplication[] | null>(null);
+  const [applications, setApplications] = useState<OrgApplicationWithJob[] | null>(null);
   const [interviews, setInterviews] = useState<MyInterview[] | null>(null);
 
   useEffect(() => {
     api.get<OrgAnalytics>('/organizations/me/analytics').then(setAnalytics);
     api
-      .get<PaginatedResponse<OrgApplication>>('/organizations/me/applications', { pageSize: 5 })
+      .get<PaginatedResponse<OrgApplicationWithJob>>('/organizations/me/applications', { pageSize: 5 })
       .then((res) => setApplications(res.data));
     api
       .get<PaginatedResponse<MyInterview>>('/organizations/me/interviews', { pageSize: 5 })

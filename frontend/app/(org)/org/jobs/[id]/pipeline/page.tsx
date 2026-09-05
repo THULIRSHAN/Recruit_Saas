@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Avatar, Card } from '@/components/ui';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { Job, OrgApplication, PaginatedResponse, RecruitmentStage } from '@/lib/types';
 
 export default function PipelinePage() {
@@ -13,13 +13,21 @@ export default function PipelinePage() {
   const [stages, setStages] = useState<RecruitmentStage[]>([]);
   const [applications, setApplications] = useState<OrgApplication[]>([]);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<Job>(`/jobs/${id}`).then(setJob);
-    api.get<RecruitmentStage[]>(`/jobs/${id}/stages`).then((s) => setStages(s.sort((a, b) => a.order - b.order)));
+    api.get<Job>(`/jobs/${id}`).then(setJob).catch(() => setError('Could not load this job.'));
     api
-      .get<PaginatedResponse<OrgApplication>>(`/jobs/${id}/applications`, { pageSize: 200 })
-      .then((res) => setApplications(res.data));
+      .get<RecruitmentStage[]>(`/jobs/${id}/stages`)
+      .then((s) => setStages(s.sort((a, b) => a.order - b.order)))
+      .catch(() => setError('Could not load pipeline stages.'));
+    // 100 is the server-enforced cap (ListJobApplicationsQueryDto's @Max) --
+    // a job with more active applicants than that needs real pagination
+    // here, not a higher request size.
+    api
+      .get<PaginatedResponse<OrgApplication>>(`/jobs/${id}/applications`, { pageSize: 100 })
+      .then((res) => setApplications(res.data))
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load applications.'));
   }, [id]);
 
   const filtered = useMemo(
@@ -55,6 +63,15 @@ export default function PipelinePage() {
           className="h-9 w-64 rounded-[9px] border border-border px-3 text-[13px] outline-none focus:border-accent"
         />
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-danger/30 bg-danger-soft px-4 py-2.5 text-[13px] text-danger">
+          {error}
+          <button onClick={() => window.location.reload()} className="font-bold underline">
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 gap-4 overflow-x-auto pb-4">
         {columns.map(({ stage, applications: apps }) => (

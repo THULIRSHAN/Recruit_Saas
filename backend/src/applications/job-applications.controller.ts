@@ -39,6 +39,34 @@ export class JobApplicationsController {
     return this.applicationsService.getForJob(user.orgId, jobId, id);
   }
 
+  // REQ-APP-002/003's own main flow names this explicitly ("list + CV
+  // preview") -- a P0 requirement with no endpoint behind it until now.
+  @Get(':id/cv/signed-url')
+  @RequirePermission('application:read')
+  @RequireTenant({ model: 'job', param: 'jobId' })
+  getCvSignedUrl(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('jobId') jobId: string,
+    @Param('id') id: string,
+  ) {
+    return this.applicationsService.getCvSignedUrlForJob(user.orgId, jobId, id);
+  }
+
+  @Get(':id/history')
+  @RequirePermission('application:read')
+  @RequireTenant({ model: 'job', param: 'jobId' })
+  getStageHistory(
+    @CurrentUser() user: AccessTokenPayload,
+    @Param('jobId') jobId: string,
+    @Param('id') id: string,
+  ) {
+    return this.applicationsService.getStageHistoryForJob(
+      user.orgId,
+      jobId,
+      id,
+    );
+  }
+
   @Post(':id/screen')
   @RequirePermission('application:screen')
   @RequireTenant({ model: 'job', param: 'jobId' })
