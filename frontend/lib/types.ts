@@ -77,6 +77,101 @@ export interface CandidateSkill {
 }
 
 // Mirrors backend/src/candidates/candidates.service.ts's toDetail().
+export type JobStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'ARCHIVED';
+
+// Mirrors backend/src/jobs/jobs.service.ts's toDetail() (org-facing, wider
+// than the public search shape above).
+export interface Job {
+  id: string;
+  organizationId: string;
+  title: string;
+  description: string;
+  department: string | null;
+  location: string | null;
+  employmentType: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  status: JobStatus;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string | null;
+  closedAt: string | null;
+}
+
+export interface RecruitmentStage {
+  id: string;
+  name: string;
+  order: number;
+}
+
+export interface PipelineTemplate {
+  id: string;
+  organizationId: string;
+  name: string;
+  stages: { id: string; name: string; order: number }[];
+}
+
+export type EvaluationRecommendation = 'STRONG_YES' | 'YES' | 'NO' | 'STRONG_NO';
+
+// backend/src/interviews/interviews.service.ts's toEvaluationDetail().
+export interface Evaluation {
+  id: string;
+  scores: Record<string, number>;
+  comment: string | null;
+  recommendation: EvaluationRecommendation;
+  submittedAt: string;
+  interviewId: string;
+  interviewer: { id: string; fullName: string; email: string };
+}
+
+export type InterviewStatus = 'SCHEDULED' | 'COMPLETED' | 'RESCHEDULED' | 'CANCELLED';
+
+// Org-staff view (backend/src/interviews/interviews.service.ts's toDetail()).
+export interface OrgInterview {
+  id: string;
+  scheduledAt: string;
+  mode: string;
+  status: InterviewStatus;
+  rescheduledToId: string | null;
+  panel: { id: string; interviewer: { id: string; fullName: string; email: string } }[];
+}
+
+// Interviewer's own view (toMineDetail()) -- no panel identities, just the
+// application/job/candidate context.
+export interface MyInterview {
+  id: string;
+  scheduledAt: string;
+  mode: string;
+  status: InterviewStatus;
+  rescheduledToId: string | null;
+  application: {
+    id: string;
+    job: { id: string; title: string };
+    candidate: { id: string; fullName: string };
+  };
+}
+
+// Org-staff view of an application (backend/src/applications/applications.service.ts's toOrgDetail()).
+export interface OrgApplication {
+  id: string;
+  status: ApplicationStatus;
+  coverNote: string | null;
+  rejectedReason: string | null;
+  appliedAt: string;
+  updatedAt: string;
+  candidate: { id: string; fullName: string; email: string };
+  cv: { id: string; fileName: string };
+  stage: { id: string; name: string };
+}
+
+export interface OrgMember {
+  id: string;
+  fullName: string;
+  email: string;
+  roles: string[];
+}
+
 export interface CandidateProfile {
   headline: string | null;
   location: string | null;

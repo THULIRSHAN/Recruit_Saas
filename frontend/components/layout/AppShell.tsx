@@ -12,7 +12,7 @@ export interface NavItem {
 
 interface AppShellProps {
   items: NavItem[];
-  orgLabel?: string;
+  orgLabel?: React.ReactNode;
   children: React.ReactNode;
 }
 

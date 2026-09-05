@@ -44,6 +44,13 @@ export class OrganizationsController {
     return this.organizationsService.getMine(user.orgId);
   }
 
+  // No permission gate, same reasoning as getMine() -- any org-scoped
+  // role may see its own teammates (e.g. to pick an interview panel).
+  @Get('me/members')
+  listMembers(@CurrentUser() user: AccessTokenPayload) {
+    return this.organizationsService.listMembers(user.orgId);
+  }
+
   @Patch('me')
   @RequirePermission('organization:update')
   updateMine(

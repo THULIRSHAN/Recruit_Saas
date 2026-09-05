@@ -7,3 +7,4 @@ export { EmptyState } from './EmptyState';
 export { Field, Input, Select, Textarea } from './Field';
 export { Pill } from './Pill';
 export { StatCard } from './StatCard';
+export { Stars } from './Stars';

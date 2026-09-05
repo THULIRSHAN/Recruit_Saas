@@ -519,6 +519,65 @@ describe('OrganizationsController (e2e)', () => {
     });
   });
 
+  describe('GET /organizations/me/members', () => {
+    it("lists the caller's org teammates with their roles (happy path)", async () => {
+      const { orgId, token: ownerToken } =
+        await registerOrgAndLoginOwner('MembersHappy');
+      await approveOrg(orgId);
+      await addRecruiterToOrgAndLogin(orgId);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/members')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThanOrEqual(2);
+      expect(res.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            roles: expect.arrayContaining(['COMPANY_OWNER']),
+          }),
+          expect.objectContaining({
+            roles: expect.arrayContaining(['RECRUITER']),
+          }),
+        ]),
+      );
+    });
+
+    it("does not leak another organization's members", async () => {
+      const { orgId: orgAId, token: orgAToken } =
+        await registerOrgAndLoginOwner('MembersScopeA');
+      await approveOrg(orgAId);
+      const { orgId: orgBId } = await registerOrgAndLoginOwner('MembersScopeB');
+      await approveOrg(orgBId);
+      await addRecruiterToOrgAndLogin(orgBId);
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/members')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].roles).toEqual(['COMPANY_OWNER']);
+    });
+
+    it('rejects an unauthenticated request with 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/members')
+        .expect(401);
+    });
+
+    it('returns 404 when the caller has no organization in their token', async () => {
+      const token = await createNonAdminAndLogin();
+
+      await request(app.getHttpServer())
+        .get('/api/v1/organizations/me/members')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+  });
+
   describe('PATCH /organizations/me', () => {
     it("updates the caller's own ACTIVE organization's name (happy path)", async () => {
       const { orgId, token } = await registerOrgAndLoginOwner('PatchMine');

@@ -171,6 +171,43 @@ export class OrganizationsService {
   // Gated by organization:update at the controller (Company Owner only).
   // Q15: writes require status === ACTIVE, mirroring REQ-AUTH-002's "not
   // usable... until Super Admin approves."
+  // No frontend-facing way to pick an interview panel existed anywhere in
+  // the API -- REQ-INT-001/002 assumes a Recruiter can see the org's
+  // interviewers, but nothing enumerated org staff. Same no-permission-
+  // gate reasoning as getMine(): any org-scoped role may see its own
+  // teammates' names/emails/roles, and orgId comes only from the caller's
+  // token, so there's no cross-tenant surface to guard.
+  async listMembers(orgId: string | null) {
+    const organization = await this.requireOwnOrganization(orgId);
+    const memberships = await this.prisma.userOrganizationRole.findMany({
+      where: { organizationId: organization.id },
+      include: {
+        user: { select: { id: true, fullName: true, email: true } },
+        role: { select: { key: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const byUserId = new Map<
+      string,
+      { id: string; fullName: string; email: string; roles: string[] }
+    >();
+    for (const membership of memberships) {
+      const existing = byUserId.get(membership.user.id);
+      if (existing) {
+        existing.roles.push(membership.role.key);
+      } else {
+        byUserId.set(membership.user.id, {
+          id: membership.user.id,
+          fullName: membership.user.fullName,
+          email: membership.user.email,
+          roles: [membership.role.key],
+        });
+      }
+    }
+    return Array.from(byUserId.values());
+  }
+
   async updateMine(orgId: string | null, dto: UpdateOrganizationDto) {
     const organization = await this.requireOwnOrganization(orgId);
     if (organization.status !== OrganizationStatus.ACTIVE) {
