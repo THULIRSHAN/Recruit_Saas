@@ -200,6 +200,14 @@ export function ChevronRightIcon({ size = 14, className }: IconProps) {
   );
 }
 
+export function ChevronLeftIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
+      <polyline points="15,5 8,12 15,19" />
+    </svg>
+  );
+}
+
 export function OfferIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
@@ -223,6 +231,17 @@ export function XCircleIcon({ size = 16, className }: IconProps) {
     <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
       <line x1="6" y1="6" x2="18" y2="18" />
       <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
+  );
+}
+
+export function ClipboardIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...base}>
+      <rect x="5.5" y="4.5" width="13" height="16" rx="2" />
+      <rect x="8.7" y="3" width="6.6" height="3" rx="1" />
+      <line x1="8.5" y1="11" x2="15.5" y2="11" />
+      <line x1="8.5" y1="14.5" x2="15.5" y2="14.5" />
     </svg>
   );
 }

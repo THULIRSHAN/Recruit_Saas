@@ -55,6 +55,19 @@ export interface OrgOffer extends Offer {
   job: { id: string; title: string };
 }
 
+// Mirrors backend/src/audit-log/audit-log.service.ts's list() -- GET
+// /admin/audit-log.
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  metadata: unknown;
+  createdAt: string;
+  actor: { id: string; fullName: string; email: string } | null;
+  organization: { id: string; name: string } | null;
+}
+
 export interface CandidateCv {
   id: string;
   fileName: string;

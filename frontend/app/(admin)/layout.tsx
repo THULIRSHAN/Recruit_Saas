@@ -1,13 +1,14 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
-import { BuildingIcon, DashboardIcon, SchoolIcon } from '@/components/ui';
+import { BuildingIcon, ClipboardIcon, DashboardIcon, SchoolIcon } from '@/components/ui';
 import { useRequireAuth } from '@/lib/use-require-auth';
 
 const NAV_ITEMS = [
   { label: 'Overview', href: '/admin', icon: <DashboardIcon /> },
   { label: 'Organizations', href: '/admin/organizations', icon: <BuildingIcon /> },
   { label: 'Universities', href: '/admin/universities', icon: <SchoolIcon /> },
+  { label: 'Audit Log', href: '/admin/audit-log', icon: <ClipboardIcon /> },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

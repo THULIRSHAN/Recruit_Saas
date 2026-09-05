@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ApplicationsModule } from './applications/applications.module';
+import { AuditLogModule } from './audit-log/audit-log.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
@@ -57,6 +58,7 @@ import { UniversitiesModule } from './universities/universities.module';
     TalentPoolsModule,
     UniversitiesModule,
     AnalyticsModule,
+    AuditLogModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
