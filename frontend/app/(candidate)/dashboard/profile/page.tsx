@@ -97,12 +97,16 @@ export default function CandidateProfilePage() {
   }
 
   async function updateExperience(items: CandidateExperience[]) {
+    // @IsOptional() only skips validation for null/undefined, not '' -- an
+    // empty string still hits @IsDateString() and fails with "must be a
+    // valid ISO 8601 date string", so blank date inputs must become
+    // undefined here, not sent as ''.
     const experience = await api.patch<CandidateExperience[]>('/candidates/me/experience', {
       experience: items.map(({ company, title, startDate, endDate, description }) => ({
         company,
         title,
-        startDate,
-        endDate,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
         description,
       })),
     });
@@ -270,6 +274,18 @@ function ExperienceEditor({
                 Remove
               </button>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                type="date"
+                value={toDateInputValue(item.startDate)}
+                onChange={(e) => updateRow(item.id, { startDate: e.target.value })}
+              />
+              <Input
+                type="date"
+                value={toDateInputValue(item.endDate)}
+                onChange={(e) => updateRow(item.id, { endDate: e.target.value || null })}
+              />
+            </div>
             <textarea
               value={item.description ?? ''}
               onChange={(e) => updateRow(item.id, { description: e.target.value })}
@@ -288,6 +304,13 @@ function ExperienceEditor({
       )}
     </Card>
   );
+}
+
+// <input type="date"> needs "YYYY-MM-DD"; the API returns full ISO
+// datetimes -- truncate rather than reparsing through Date (avoids
+// timezone shifting the displayed day).
+function toDateInputValue(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : '';
 }
 
 function EducationEditor({
